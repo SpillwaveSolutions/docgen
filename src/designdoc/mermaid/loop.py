@@ -1,0 +1,113 @@
+"""The mermaid two-checker loop.
+
+Wraps the generic doer_checker_loop with a composite checker: mmdc syntax
+check FIRST (deterministic), then LLM semantic check if syntax passes. If
+either fails, the whole attempt fails — ordering is enforced at the loop
+level, not in a prompt.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from designdoc.agents.mermaid_generator import (
+    build_doer_prompt,
+    build_validator_prompt,
+    make_mermaid_generator,
+    make_mermaid_validator,
+)
+from designdoc.loop import ArtifactResult, doer_checker_loop
+from designdoc.mermaid.mmdc import validate as mmdc_validate
+from designdoc.runner import AgentDef
+
+FENCE_RE = re.compile(r"^```(?:mermaid)?\s*\n?|\n?```\s*$", re.MULTILINE)
+
+
+def strip_fence(text: str) -> str:
+    """Strip leading/trailing ```mermaid fences the doer may wrap around its output."""
+    return FENCE_RE.sub("", text).strip()
+
+
+async def generate_validated_mermaid(
+    *,
+    artifact_name: str,
+    artifact_text: str,
+    runner: Any,
+    hil_sink: list[dict],
+    doer: AgentDef | None = None,
+    validator: AgentDef | None = None,
+    stage_name: str = "mermaid",
+) -> ArtifactResult:
+    """Generate a mermaid diagram for `artifact_text` and validate it.
+
+    Uses doer_checker_loop with a composite checker function that the
+    runner will invoke via the special "mermaid-combined-checker" agent
+    whose output the loop parses as a CheckerVerdict.
+    """
+    doer = doer or make_mermaid_generator()
+    validator = validator or make_mermaid_validator()
+
+    async def combined_check(mermaid_text_fenced: str) -> str:
+        """Returns a JSON verdict string (what the outer loop expects)."""
+        mermaid_src = strip_fence(mermaid_text_fenced)
+
+        syntax = mmdc_validate(mermaid_src)
+        if not syntax.ok:
+            return json.dumps(
+                {
+                    "status": "fail",
+                    "summary": "mmdc syntax check failed",
+                    "issues": [
+                        {
+                            "severity": "critical",
+                            "location": "<mermaid source>",
+                            "current_text": mermaid_src[:200],
+                            "suggested_fix": f"fix syntax error: {syntax.stderr[:200]}",
+                        }
+                    ],
+                }
+            )
+
+        # Syntax passed — hand to semantic checker
+        semantic_prompt = build_validator_prompt(artifact_name, artifact_text, mermaid_src)
+        semantic_result = await runner.run(validator, semantic_prompt)
+        return semantic_result.text
+
+    class _CompositeCheckerRunner:
+        """Proxy runner that routes checker calls through combined_check."""
+
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def run(self, agent, prompt):
+            if agent.name == "mermaid-combined-checker":
+                text = await combined_check(prompt)
+                from designdoc.runner import RunResult
+
+                return RunResult(text=text, input_tokens=0, output_tokens=0, cost_usd=0.0)
+            return await self.inner.run(agent, prompt)
+
+    # The combined checker is synthetic — it routes through combined_check.
+    # The loop sees one "checker" AgentDef; our proxy intercepts and runs both.
+    composite_checker = AgentDef(
+        name="mermaid-combined-checker",
+        system_prompt="(internal composite — syntax then semantic)",
+        model="internal",
+    )
+
+    def checker_prompt_fn(mermaid_text: str) -> str:
+        # The proxy doesn't care about the prompt text — it reads the doer's raw output.
+        return mermaid_text
+
+    return await doer_checker_loop(
+        artifact_id=f"mermaid:{artifact_name}",
+        doer=doer,
+        checker=composite_checker,
+        doer_prompt=build_doer_prompt(artifact_name, artifact_text),
+        checker_prompt_fn=checker_prompt_fn,
+        runner=_CompositeCheckerRunner(runner),
+        hil_sink=hil_sink,
+        stage_name=stage_name,
+    )

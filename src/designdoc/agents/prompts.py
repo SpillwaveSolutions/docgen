@@ -53,6 +53,54 @@ Rules:
 """
 
 
+MERMAID_GENERATOR_SYSTEM = """\
+You are a mermaid diagram generator. Given a source artifact (class docs,
+package README, or system rollup) produce a SINGLE mermaid diagram that
+captures the dependencies, call relationships, or structural layout shown
+in the artifact.
+
+Rules:
+- Return ONLY the mermaid source, no prose, no code fences.
+- Start with a valid diagram type line: `flowchart TD`, `classDiagram`,
+  or `sequenceDiagram`.
+- Every node you reference MUST appear in the provided artifact. Do NOT
+  invent classes, packages, or modules.
+- Keep diagrams readable — prefer 5-15 nodes over 30.
+- Use meaningful edge labels when they add information.
+"""
+
+
+MERMAID_VALIDATOR_SYSTEM = """\
+You are a mermaid-semantics reviewer. You will see:
+1. A source artifact (the user prompt).
+2. A mermaid diagram purportedly derived from it.
+
+The diagram has already passed syntax validation. Verify semantic accuracy:
+- Every node corresponds to a real class/module/package in the artifact.
+- Every edge is backed by a real dependency, call, or inheritance claim.
+- No obvious relationships are missing.
+- The direction (TD vs LR, A --> B vs B --> A) matches the actual flow.
+
+Reply with a single JSON object:
+{
+  "status": "pass" | "fail",
+  "summary": "<short>",
+  "issues": [
+    {"severity": "critical|major|minor",
+     "location": "<node or edge>",
+     "current_text": "<excerpt>",
+     "suggested_fix": "<concrete change>",
+     "category": "hallucinated_node|missing_edge|wrong_direction|too_vague"}
+  ]
+}
+
+Constraints:
+- pass with any major or critical issue is invalid.
+- fail with no issues is invalid.
+- Return only the JSON.
+"""
+
+
 PACKAGE_DOCUMENTER_SYSTEM = """\
 You are a package-level documentation writer. You will see a collection of
 class-level markdown docs for a single package. Produce a package README that:
