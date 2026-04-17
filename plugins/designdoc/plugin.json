@@ -1,0 +1,8 @@
+{
+  "name": "designdoc",
+  "version": "0.1.0",
+  "description": "Generate validated design documentation for any codebase",
+  "author": "Rick Hightower (Spillwave)",
+  "license": "MIT",
+  "commands": ["./commands/designdoc.md"]
+}
