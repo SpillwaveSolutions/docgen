@@ -202,6 +202,9 @@ def status(
     typer.echo(f"hil_issues: {len(state.hil_issues)}")
     typer.echo(f"total_retries: {state.total_retries}")
 
+    # Incremental-regeneration readiness hints.
+    _print_incremental_hints(state)
+
     budget_path = out / BUDGET_FILENAME
     if budget_path.exists():
         import json
@@ -211,6 +214,27 @@ def status(
             f"cost: ${data['total_cost_usd']:.4f} / cap ${data['cap_usd']:.2f} "
             f"({data['invocations']} invocations)"
         )
+
+
+def _print_incremental_hints(state: PipelineState) -> None:
+    """Report which caches are primed so the user knows which stages will
+    skip on the next run. A cold run (empty prev_hashes + rollup_hashes)
+    is called out explicitly."""
+    prev_count = len(state.prev_hashes)
+    rollup_count = len(state.rollup_hashes)
+    if prev_count == 0 and rollup_count == 0:
+        typer.echo("incremental: cold (no cached hashes — next run will regenerate everything)")
+        return
+
+    typer.echo(f"incremental: prev_hashes: {prev_count} file(s) cached")
+    # Group rollup hashes by category prefix so the output stays
+    # readable when there are many packages or mermaid artifacts.
+    groups: dict[str, int] = {}
+    for key in state.rollup_hashes:
+        category = key.split(":", 1)[0] if ":" in key else key
+        groups[category] = groups.get(category, 0) + 1
+    for category, count in sorted(groups.items()):
+        typer.echo(f"  rollup {category}: {count} cached")
 
 
 EmitQuestionsOpt = Annotated[
