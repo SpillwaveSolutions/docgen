@@ -1,5 +1,9 @@
 version: '3'
 
+# CI-PARITY RULE:
+# `task ci` must run the EXACT same commands as .github/workflows/test.yml.
+# If you change one, change the other in the same commit.
+
 tasks:
   install:
     desc: Install deps into a uv-managed venv
@@ -7,26 +11,42 @@ tasks:
 
   test:
     desc: Unit + integration tests (no real API)
-    cmds: [uv run pytest tests/unit tests/integration -m "not requires_api" -v]
+    cmds:
+      - uv run pytest tests/unit -v
+      - uv run pytest tests/integration -m "not requires_api" -v
 
   test-unit:
     desc: Unit tests only
     cmds: [uv run pytest tests/unit -v]
 
+  test-integration:
+    desc: Integration tests (no API)
+    cmds: [uv run pytest tests/integration -m "not requires_api" -v]
+
   test-e2e:
-    desc: End-to-end tests (real API, gated)
+    desc: End-to-end tests (real API + mmdc required)
     cmds: [uv run pytest tests/e2e -v]
 
   lint:
+    desc: Ruff check
     cmds: [uv run ruff check src tests]
 
+  lint-format:
+    desc: Ruff format --check (no writes)
+    cmds: [uv run ruff format --check src tests]
+
   format:
+    desc: Ruff format (writes)
     cmds: [uv run ruff format src tests]
 
-  typecheck:
-    desc: Reserved for future mypy integration
-    cmds: ["echo 'typecheck not yet configured'"]
+  ci:
+    desc: The EXACT commands the GitHub gate runs. Must be green before commit or push.
+    cmds:
+      - uv run ruff check src tests
+      - uv run ruff format --check src tests
+      - uv run pytest tests/unit -v
+      - uv run pytest tests/integration -m "not requires_api" -v
 
   dogfood:
-    desc: Run designdoc against tests/fixtures/tiny_repo
+    desc: Run designdoc against tests/fixtures/tiny_repo (real API)
     cmds: [uv run designdoc generate --repo tests/fixtures/tiny_repo --budget 2.00]

@@ -6,6 +6,7 @@ Invariants under test:
 - State survives save() / load_or_new() round-trip — this is what makes pipeline
   resume possible.
 """
+
 from __future__ import annotations
 
 import pytest

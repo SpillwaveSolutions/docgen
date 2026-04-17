@@ -12,14 +12,15 @@ Each call:
      only (not cumulative) and go back to step 1.
   5. If fail and at cap, append to hil_sink and ship the doc anyway.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
-from designdoc.verdict import CheckerVerdict, parse_verdict
 from designdoc.runner import AgentDef  # noqa: F401 — re-export for callers
-
+from designdoc.verdict import CheckerVerdict, parse_verdict
 
 MAX_ATTEMPTS: int = 3
 """CANONICAL. Enforced here, nowhere else. Do not expose in config."""
@@ -59,11 +60,22 @@ async def doer_checker_loop(
             return ArtifactResult(artifact_id, "pass", current_text, attempt, verdict)
 
         if attempt == MAX_ATTEMPTS:
-            hil_sink.append(_build_hil_entry(
-                artifact_id, stage_name, current_text, verdict, attempt, hil_sink,
-            ))
+            hil_sink.append(
+                _build_hil_entry(
+                    artifact_id,
+                    stage_name,
+                    current_text,
+                    verdict,
+                    attempt,
+                    hil_sink,
+                )
+            )
             return ArtifactResult(
-                artifact_id, "shipped_with_hil", current_text, attempt, verdict,
+                artifact_id,
+                "shipped_with_hil",
+                current_text,
+                attempt,
+                verdict,
             )
 
         # Retry with ONLY this attempt's issues — no cumulative drift.
@@ -73,9 +85,7 @@ async def doer_checker_loop(
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-def _build_retry_prompt(
-    original: str, previous_output: str, verdict: CheckerVerdict
-) -> str:
+def _build_retry_prompt(original: str, previous_output: str, verdict: CheckerVerdict) -> str:
     """Construct the retry prompt. Framing: fix these specific issues only.
 
     Including the previous output is deliberate — the doer needs to see what

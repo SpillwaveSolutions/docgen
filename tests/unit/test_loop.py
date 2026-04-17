@@ -6,6 +6,7 @@ reliability claim collapses. Specifically:
 - The checker must run in isolation (we use ScriptedRunner to verify call separation).
 - On 3 failures, the doc ships with a HIL entry — the pipeline never blocks.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -36,18 +37,24 @@ def _fail_json(attempt: int, fix: str = "f") -> str:
 
 @pytest.mark.anyio
 async def test_passes_first_attempt():
-    runner = ScriptedRunner({
-        "doer": ["draft-1"],
-        "checker": ['{"status":"pass","summary":"ok"}'],
-    })
+    runner = ScriptedRunner(
+        {
+            "doer": ["draft-1"],
+            "checker": ['{"status":"pass","summary":"ok"}'],
+        }
+    )
     doer = AgentDef(name="doer", system_prompt="", model="m")
     checker = AgentDef(name="checker", system_prompt="", model="m")
     hil_sink: list[dict] = []
 
     result = await doer_checker_loop(
-        artifact_id="x", doer=doer, checker=checker,
-        doer_prompt="write x", checker_prompt_fn=lambda d: f"check: {d}",
-        runner=runner, hil_sink=hil_sink,
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="write x",
+        checker_prompt_fn=lambda d: f"check: {d}",
+        runner=runner,
+        hil_sink=hil_sink,
     )
 
     assert result.status == "pass"
@@ -60,18 +67,24 @@ async def test_passes_first_attempt():
 
 @pytest.mark.anyio
 async def test_passes_second_attempt_after_fail():
-    runner = ScriptedRunner({
-        "doer": ["draft-1", "draft-2"],
-        "checker": [_fail_json(1), '{"status":"pass","summary":"ok"}'],
-    })
+    runner = ScriptedRunner(
+        {
+            "doer": ["draft-1", "draft-2"],
+            "checker": [_fail_json(1), '{"status":"pass","summary":"ok"}'],
+        }
+    )
     doer = AgentDef(name="doer", system_prompt="", model="m")
     checker = AgentDef(name="checker", system_prompt="", model="m")
     hil_sink: list[dict] = []
 
     result = await doer_checker_loop(
-        artifact_id="x", doer=doer, checker=checker,
-        doer_prompt="p", checker_prompt_fn=lambda d: d,
-        runner=runner, hil_sink=hil_sink,
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=hil_sink,
     )
 
     assert result.status == "pass"
@@ -84,18 +97,24 @@ async def test_passes_second_attempt_after_fail():
 
 @pytest.mark.anyio
 async def test_ships_with_hil_after_3_fails():
-    runner = ScriptedRunner({
-        "doer": ["d1", "d2", "d3"],
-        "checker": [_fail_json(1), _fail_json(2), _fail_json(3)],
-    })
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": [_fail_json(1), _fail_json(2), _fail_json(3)],
+        }
+    )
     doer = AgentDef(name="doer", system_prompt="", model="m")
     checker = AgentDef(name="checker", system_prompt="", model="m")
     hil_sink: list[dict] = []
 
     result = await doer_checker_loop(
-        artifact_id="x", doer=doer, checker=checker,
-        doer_prompt="p", checker_prompt_fn=lambda d: d,
-        runner=runner, hil_sink=hil_sink,
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=hil_sink,
         stage_name="class-docs",
     )
 
@@ -113,18 +132,24 @@ async def test_ships_with_hil_after_3_fails():
 
 @pytest.mark.anyio
 async def test_malformed_checker_output_counts_as_attempt():
-    runner = ScriptedRunner({
-        "doer": ["d1", "d2", "d3"],
-        "checker": ["not json", "also not json", _fail_json(3)],
-    })
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": ["not json", "also not json", _fail_json(3)],
+        }
+    )
     doer = AgentDef(name="doer", system_prompt="", model="m")
     checker = AgentDef(name="checker", system_prompt="", model="m")
     hil_sink: list[dict] = []
 
     result = await doer_checker_loop(
-        artifact_id="x", doer=doer, checker=checker,
-        doer_prompt="p", checker_prompt_fn=lambda d: d,
-        runner=runner, hil_sink=hil_sink,
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=hil_sink,
     )
 
     assert result.status == "shipped_with_hil"
@@ -135,17 +160,26 @@ async def test_malformed_checker_output_counts_as_attempt():
 @pytest.mark.anyio
 async def test_retry_prompt_contains_only_latest_issues():
     """Retry N must see ONLY the issues from attempt N-1, never accumulated history."""
-    runner = ScriptedRunner({
-        "doer": ["d1", "d2"],
-        "checker": [_fail_json(1, fix="FIX-FROM-ATTEMPT-1"), '{"status":"pass","summary":"ok"}'],
-    })
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2"],
+            "checker": [
+                _fail_json(1, fix="FIX-FROM-ATTEMPT-1"),
+                '{"status":"pass","summary":"ok"}',
+            ],
+        }
+    )
     doer = AgentDef(name="doer", system_prompt="", model="m")
     checker = AgentDef(name="checker", system_prompt="", model="m")
 
     await doer_checker_loop(
-        artifact_id="x", doer=doer, checker=checker,
-        doer_prompt="ORIGINAL-TASK", checker_prompt_fn=lambda d: d,
-        runner=runner, hil_sink=[],
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="ORIGINAL-TASK",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
     )
 
     # Third call is the doer retry — inspect its prompt
@@ -153,4 +187,4 @@ async def test_retry_prompt_contains_only_latest_issues():
     agent_name, retry_prompt = retry_call
     assert agent_name == "doer"
     assert "FIX-FROM-ATTEMPT-1" in retry_prompt  # latest issue
-    assert "ORIGINAL-TASK" in retry_prompt       # original task included
+    assert "ORIGINAL-TASK" in retry_prompt  # original task included

@@ -3,6 +3,7 @@
 Invariant: save() followed by load_or_new() must return a byte-identical state.
 If this test ever regresses, resume correctness is broken.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

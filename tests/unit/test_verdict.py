@@ -7,6 +7,7 @@ The pydantic consistency validator is the type-level guard against self-grading:
 parse_verdict must NEVER raise. Any unparseable checker output becomes a
 synthetic fail verdict (Gen 3 rule 4: fail loud, not quiet).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -24,18 +25,28 @@ def test_valid_pass_no_issues():
 def test_valid_pass_with_minor_issue_only():
     """Minor issues on a pass are allowed — they surface in the doc as follow-ups."""
     v = CheckerVerdict(
-        status="pass", attempt=1, artifact_id="a",
-        issues=[CheckerIssue(severity="minor", location="x:1",
-                             current_text="nit", suggested_fix="polish")],
+        status="pass",
+        attempt=1,
+        artifact_id="a",
+        issues=[
+            CheckerIssue(
+                severity="minor", location="x:1", current_text="nit", suggested_fix="polish"
+            )
+        ],
     )
     assert v.status == "pass"
 
 
 def test_valid_fail_with_issues():
     v = CheckerVerdict(
-        status="fail", attempt=1, artifact_id="a",
-        issues=[CheckerIssue(severity="major", location="x:1",
-                             current_text="wrong", suggested_fix="fix")],
+        status="fail",
+        attempt=1,
+        artifact_id="a",
+        issues=[
+            CheckerIssue(
+                severity="major", location="x:1", current_text="wrong", suggested_fix="fix"
+            )
+        ],
     )
     assert v.status == "fail"
 
@@ -43,18 +54,26 @@ def test_valid_fail_with_issues():
 def test_pass_with_major_issue_rejected():
     with pytest.raises(ValidationError, match="pass with non-minor"):
         CheckerVerdict(
-            status="pass", attempt=1, artifact_id="a",
-            issues=[CheckerIssue(severity="major", location="x:1",
-                                 current_text="a", suggested_fix="b")],
+            status="pass",
+            attempt=1,
+            artifact_id="a",
+            issues=[
+                CheckerIssue(severity="major", location="x:1", current_text="a", suggested_fix="b")
+            ],
         )
 
 
 def test_pass_with_critical_issue_rejected():
     with pytest.raises(ValidationError, match="pass with non-minor"):
         CheckerVerdict(
-            status="pass", attempt=1, artifact_id="a",
-            issues=[CheckerIssue(severity="critical", location="x:1",
-                                 current_text="a", suggested_fix="b")],
+            status="pass",
+            attempt=1,
+            artifact_id="a",
+            issues=[
+                CheckerIssue(
+                    severity="critical", location="x:1", current_text="a", suggested_fix="b"
+                )
+            ],
         )
 
 
@@ -96,9 +115,12 @@ def test_parse_never_raises_on_any_input():
 
 def test_mermaid_issue_category():
     m = MermaidIssue(
-        severity="major", location="line 3",
-        current_text="A-->B", suggested_fix="remove B",
-        category="hallucinated_node", node_or_edge="B",
+        severity="major",
+        location="line 3",
+        current_text="A-->B",
+        suggested_fix="remove B",
+        category="hallucinated_node",
+        node_or_edge="B",
     )
     assert m.category == "hallucinated_node"
     assert m.node_or_edge == "B"

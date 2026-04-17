@@ -7,10 +7,11 @@ The user resolves these later via `/designdoc resolve`.
 ruamel.yaml is used instead of pyyaml so repeated appends preserve comments and
 formatting — this matters because users edit the YAML between runs.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -58,7 +59,7 @@ def _load_or_init(path: Path) -> dict:
 def _fresh_doc() -> dict:
     return {
         "version": 1,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "unresolved_count": 0,
         "issues": [],
     }
@@ -73,6 +74,6 @@ def append_issue(path: Path, issue: HILIssue) -> None:
     doc = _load_or_init(path)
     doc["issues"].append(asdict(issue))
     doc["unresolved_count"] = sum(1 for i in doc["issues"] if i["status"] == "open")
-    doc["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    doc["generated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     with path.open("w") as f:
         _yaml().dump(doc, f)

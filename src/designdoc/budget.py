@@ -4,6 +4,7 @@ Every LLM invocation accrues a UsageRecord through a single CostAccumulator.
 When the projected total would exceed cap_usd, we raise BudgetExceededError
 BEFORE mutating state — callers that catch the error see prior totals intact.
 """
+
 from __future__ import annotations
 
 import json

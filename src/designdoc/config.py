@@ -4,6 +4,7 @@ CONSTITUTIONAL GUARD: max_attempts is NOT a field here. It is fixed at 3 in
 loop.py and must never be exposed as config. If you're tempted to add it,
 re-read CLAUDE.md §3.
 """
+
 from __future__ import annotations
 
 import tomllib
@@ -24,9 +25,7 @@ class Config(BaseModel):
         default_factory=lambda: ["python", "typescript", "javascript", "java", "go", "rust"]
     )
     exclude_paths: list[str] = Field(
-        default_factory=lambda: [
-            "node_modules", ".venv", "venv", "dist", "build", "target", ".git"
-        ]
+        default_factory=lambda: ["node_modules", ".venv", "venv", "dist", "build", "target", ".git"]
     )
 
     perplexity_mcp: bool = True

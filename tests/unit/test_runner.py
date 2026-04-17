@@ -8,6 +8,7 @@ Runner must:
 The real claude_agent_sdk is NOT exercised here — we inject a fake to keep unit
 tests fast and offline. The live SDK path is exercised in tests/e2e.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -31,13 +32,22 @@ class FakeSDK:
 @pytest.mark.anyio
 async def test_runner_records_cost_and_returns_text():
     budget = CostAccumulator(cap_usd=1.00)
-    fake = FakeSDK([
-        {"text": "hello world",
-         "usage": {"input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01}},
-    ])
+    fake = FakeSDK(
+        [
+            {
+                "text": "hello world",
+                "usage": {"input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01},
+            },
+        ]
+    )
     r = ClaudeSDKRunner(budget=budget, sdk=fake)
-    agent = AgentDef(name="t", system_prompt="p", model="claude-sonnet-4-6",
-                     allowed_tools=[], max_output_tokens=1024)
+    agent = AgentDef(
+        name="t",
+        system_prompt="p",
+        model="claude-sonnet-4-6",
+        allowed_tools=[],
+        max_output_tokens=1024,
+    )
 
     out = await r.run(agent, prompt="hi")
 
@@ -53,11 +63,16 @@ async def test_runner_records_cost_and_returns_text():
 @pytest.mark.anyio
 async def test_runner_passes_agent_config_to_sdk():
     budget = CostAccumulator(cap_usd=1.00)
-    fake = FakeSDK([{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}])
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
     r = ClaudeSDKRunner(budget=budget, sdk=fake)
     agent = AgentDef(
-        name="checker", system_prompt="you are a checker", model="claude-haiku-4-5-20251001",
-        allowed_tools=["Read", "Grep"], max_output_tokens=2048,
+        name="checker",
+        system_prompt="you are a checker",
+        model="claude-haiku-4-5-20251001",
+        allowed_tools=["Read", "Grep"],
+        max_output_tokens=2048,
     )
 
     await r.run(agent, prompt="check this")
@@ -73,9 +88,11 @@ async def test_runner_passes_agent_config_to_sdk():
 @pytest.mark.anyio
 async def test_runner_budget_exceeded_propagates():
     budget = CostAccumulator(cap_usd=0.10)
-    fake = FakeSDK([
-        {"text": "a", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.11}},
-    ])
+    fake = FakeSDK(
+        [
+            {"text": "a", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.11}},
+        ]
+    )
     r = ClaudeSDKRunner(budget=budget, sdk=fake)
     agent = AgentDef(name="t", system_prompt="", model="m")
 

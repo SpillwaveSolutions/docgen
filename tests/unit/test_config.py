@@ -4,6 +4,7 @@ Critical invariant: max_attempts must NOT appear anywhere in the config model.
 That rule is enforced by test_config_does_not_expose_max_attempts and is the
 constitutional guard against users overriding the 3-attempt cap.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

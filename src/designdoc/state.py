@@ -4,6 +4,7 @@ Every stage transition checkpoints to <output_dir>/.designdoc-state.json. On
 restart, the orchestrator skips any stage marked DONE — that's what makes a
 crashed run picks-up-where-it-stopped.
 """
+
 from __future__ import annotations
 
 import json

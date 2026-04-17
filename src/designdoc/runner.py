@@ -8,10 +8,11 @@ Centralizes:
 Agents never call claude_agent_sdk directly; they always go through here.
 Tests inject a fake `sdk` so unit tests run offline.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol
 
 from designdoc.budget import CostAccumulator, UsageRecord
 

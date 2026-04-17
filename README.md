@@ -13,6 +13,10 @@ uv run designdoc generate --repo /path/to/your/repo --budget 5.00
 
 Output lands in `<repo>/docs/design/`.
 
+## Status
+
+**In development.** See `plans/2026_04_16_designdoc_gen_v1.md` for the task plan and current progress. Foundation layer (cost accumulator, pipeline state, verdict schemas, HIL YAML, SDK runner, doer/checker loop, config) is complete and green.
+
 ## Design principles (Gen 3 harness engineering)
 
 1. Control flow lives in Python, not prompts.
@@ -22,24 +26,74 @@ Output lands in `<repo>/docs/design/`.
 5. Reliability over speed (`max_attempts=3`, bounded parallelism).
 6. Mermaid is syntax + semantics validated before shipping.
 
-See `CLAUDE.md` for the full invariants and `plans/` for implementation plans.
+See `CLAUDE.md` / `AGENT.md` for the full invariants.
 
 ## Development
 
+### Prerequisites
+
+- Python 3.12+ (dev machine runs 3.13)
+- [uv](https://github.com/astral-sh/uv) for env management
+- [Task](https://taskfile.dev/) for running commands
+- `@mermaid-js/mermaid-cli` via `npx` (auto-fetched at Stage 5 preflight)
+- `ANTHROPIC_API_KEY` for e2e / dogfood runs
+
+### Commands
+
 ```bash
-task test          # unit + integration, no API
-task test-e2e      # requires ANTHROPIC_API_KEY
-task lint
-task format
-task dogfood       # real API run against tests/fixtures/tiny_repo
+task install         # uv sync — install deps
+task test            # unit + integration, no real API
+task test-unit       # unit tests only
+task test-e2e        # e2e tests (requires API key + mmdc)
+task lint            # ruff check
+task format          # ruff format
+task ci              # exactly what CI runs — must be green before push
+task dogfood         # real pipeline run against tests/fixtures/tiny_repo
+```
+
+Run a single test:
+
+```bash
+uv run pytest tests/unit/test_loop.py::test_ships_with_hil_after_3_fails -v
+```
+
+### Test-and-commit discipline
+
+Every change follows **TWRC**: write the test, write the code, run `task ci`, commit.
+
+**CI parity:** `task ci` must run the exact same commands as `.github/workflows/test.yml`. If you change one, change the other in the same commit. Every commit is a green checkpoint.
+
+### Layout
+
+```
+src/designdoc/
+  loop.py          # the invariant — 3-attempt doer/checker bouncer
+  verdict.py       # pydantic schemas with anti-self-grading validator
+  budget.py        # cost accumulator with hard cap
+  state.py         # resumable pipeline state
+  hil.py           # human-in-the-loop issue YAML
+  runner.py        # centralized Claude SDK wrapper
+  config.py        # TOML config loader
+  agents/          # per-agent system prompts + AgentDef factories
+  stages/          # s0_discover..s8_finalize
+  mermaid/         # mmdc wrapper + two-checker loop
+  index/           # discover + AST-lite signatures
+  templates/       # Jinja2 templates for generated docs
+plugins/designdoc/ # Claude Code slash command
+tests/{unit,integration,e2e,fixtures}/
+plans/             # implementation plan
 ```
 
 ## Claude Code plugin
 
-A `/designdoc` slash command wrapper lives in `plugins/designdoc/`. Install with:
+A `/designdoc` slash command wrapper lives in `plugins/designdoc/` (to be built in Task 21):
 
 ```bash
 cp -r plugins/designdoc ~/.claude/plugins/designdoc
 ```
 
 Commands: `/designdoc generate | resume | status | resolve`.
+
+## License
+
+MIT.

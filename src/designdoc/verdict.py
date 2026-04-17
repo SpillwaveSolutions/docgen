@@ -6,6 +6,7 @@ cannot emit status="pass" while reporting major or critical issues.
 parse_verdict never raises — any unparseable or schema-violating input returns
 a synthetic fail verdict so the doer/checker loop counts it as a failed attempt.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,9 +27,7 @@ class CheckerIssue(BaseModel):
 
 
 class MermaidIssue(CheckerIssue):
-    category: Literal[
-        "syntax", "hallucinated_node", "missing_edge", "wrong_direction", "too_vague"
-    ]
+    category: Literal["syntax", "hallucinated_node", "missing_edge", "wrong_direction", "too_vague"]
     node_or_edge: str | None = None
 
 
