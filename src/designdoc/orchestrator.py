@@ -126,7 +126,10 @@ class Orchestrator:
         """
         p = self.config.parallelism
         if stage_name == "discover":
-            return {"exclude_paths": list(self.config.exclude_paths)}
+            return {
+                "exclude_paths": list(self.config.exclude_paths),
+                "include_languages": list(self.config.include_languages),
+            }
         if stage_name == "file_analysis":
             return {"doer_model": self.config.doer_model, "parallelism": p}
         if stage_name in ("class_docs", "package_rollups"):

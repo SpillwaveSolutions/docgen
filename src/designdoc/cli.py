@@ -51,18 +51,25 @@ def _resolve_repo(repo: Path | None) -> Path:
     return repo if repo is not None else Path.cwd()
 
 
-def _resolve_output(repo: Path, output: Path | None) -> Path:
-    return output if output is not None else repo / "docs" / "design"
+def _resolve_output(
+    repo: Path, output: Path | None, config_output_dir: str = "docs/design"
+) -> Path:
+    """Precedence: explicit --output wins; otherwise config.output_dir
+    (resolved relative to repo); otherwise "docs/design"."""
+    if output is not None:
+        return output
+    return repo / config_output_dir
 
 
 async def _run_orchestrator(
     repo: Path,
-    output: Path,
+    output_flag: Path | None,
     budget_usd: float | None,
     skip: set[str],
     config_path: Path | None,
 ) -> None:
     config = load_config(config_path) if config_path else load_config(None)
+    output = _resolve_output(repo, output_flag, config.output_dir)
     # Precedence: explicit --budget wins; otherwise config value wins.
     cap_usd = budget_usd if budget_usd is not None else config.max_budget_usd
     state = PipelineState.load_or_new(output_dir=output, target_repo=repo)
@@ -84,7 +91,6 @@ def generate(
 ) -> None:
     """Run the full pipeline (stages 0-8)."""
     repo_p = _resolve_repo(repo)
-    out = _resolve_output(repo_p, output)
     skip_set = set(skip or [])
 
     # Validate --config up front so a missing path produces a distinct
@@ -94,8 +100,25 @@ def generate(
         typer.echo(f"--config path not found: {config}", err=True)
         raise typer.Exit(code=2)
 
+    # Validate config surface early so bad diagram_format etc fail fast
+    # rather than at the first stage that would care.
     try:
-        anyio.run(_run_orchestrator, repo_p, out, budget, skip_set, config)
+        load_config(config)
+    except (ValueError, TypeError) as e:
+        typer.echo(f"invalid config: {e}", err=True)
+        raise typer.Exit(code=2) from e
+    except Exception as e:
+        # Pydantic ValidationError is a ValueError subclass but surfaces as
+        # its own type; catch and map to exit 2 here.
+        from pydantic import ValidationError
+
+        if isinstance(e, ValidationError):
+            typer.echo(f"invalid config: {e}", err=True)
+            raise typer.Exit(code=2) from e
+        raise
+
+    try:
+        anyio.run(_run_orchestrator, repo_p, output, budget, skip_set, config)
     except MmdcNotAvailableError as e:
         typer.echo(f"mmdc preflight failed: {e}", err=True)
         typer.echo("Use --skip mermaid to proceed without mermaid diagrams.", err=True)

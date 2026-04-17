@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,7 +34,9 @@ class Config(BaseModel):
     agent_brain_mcp: bool = False  # v1.1
 
     output_dir: str = "docs/design"
-    diagram_format: str = "mermaid"
+    # v1 only supports mermaid; rejecting other values with a clear
+    # message beats silently ignoring them. PlantUML is on the v2 backlog.
+    diagram_format: Literal["mermaid"] = "mermaid"
 
     doer_model: str = "claude-sonnet-4-6"
     checker_model: str = "claude-sonnet-4-6"

@@ -15,12 +15,21 @@ STAGE_NAME = "discover"
 OUTPUT_FILENAME = "stage0_discovery.json"
 
 
-async def run(*, state: PipelineState, exclude_paths: list[str] | None = None) -> DiscoveryReport:
+async def run(
+    *,
+    state: PipelineState,
+    exclude_paths: list[str] | None = None,
+    include_languages: list[str] | None = None,
+) -> DiscoveryReport:
     """Execute Stage 0 and checkpoint the result."""
     state.stages[STAGE_NAME] = StageStatus.RUNNING
     state.save()
 
-    report = discover(state.target_repo, exclude_paths=exclude_paths)
+    report = discover(
+        state.target_repo,
+        exclude_paths=exclude_paths,
+        include_languages=include_languages,
+    )
 
     state.output_dir.mkdir(parents=True, exist_ok=True)
     (state.output_dir / OUTPUT_FILENAME).write_text(json.dumps(report.to_dict(), indent=2))

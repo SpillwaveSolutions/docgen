@@ -71,16 +71,20 @@ class DiscoveryReport:
 def discover(
     repo_root: Path,
     exclude_paths: list[str] | None = None,
+    include_languages: list[str] | None = None,
 ) -> DiscoveryReport:
     """Walk repo_root and classify each file by extension.
 
     exclude_paths are matched as substring components of the path — e.g.
     "skip" excludes any file under a directory named "skip" anywhere in the tree.
+    include_languages, when non-None, restricts the output to files whose
+    detected language is in that list (e.g. ["python", "typescript"]).
     Every included file gets a SHA1 content hash keyed by its posix-style
     relative path.
     """
     user_excludes = set(exclude_paths or [])
     excludes = DEFAULT_EXCLUDES | user_excludes
+    lang_filter = set(include_languages) if include_languages is not None else None
 
     languages: dict[str, int] = {}
     tree: list[Path] = []
@@ -93,6 +97,8 @@ def discover(
             continue
         lang = EXT_TO_LANG.get(path.suffix.lower())
         if lang is None:
+            continue
+        if lang_filter is not None and lang not in lang_filter:
             continue
         rel = path.relative_to(repo_root)
         tree.append(rel)
