@@ -15,7 +15,20 @@ Output lands in `<repo>/docs/design/`.
 
 ## Status
 
-**In development.** See `plans/2026_04_16_designdoc_gen_v1.md` for the task plan and current progress. Foundation layer (cost accumulator, pipeline state, verdict schemas, HIL YAML, SDK runner, doer/checker loop, config) is complete and green.
+**v1 complete, v1.1 incremental-regeneration landed.** All nine pipeline stages are implemented, tested, and measured end-to-end. See `plans/2026_04_16_designdoc_gen_v1.md` for the task plan.
+
+### Measured performance
+
+Against the `tests/fixtures/tiny_repo` fixture (5 Python files, 3 classes, 1 dep) on `claude-sonnet-4-6` via a Claude Max subscription:
+
+| Run | Wall clock | Cost (SDK-reported) | LLM invocations |
+|---|---|---|---|
+| **Cold** (first run) | ~26 min | ~$4.57 | 60 |
+| **Warm** (no source changes) | < 1 sec | $0.00 | 0 |
+
+The warm run skips every stage via content-hash comparison against `prev_hashes` / `rollup_hashes` in the pipeline state. Any single-file edit regenerates only that file's class doc + its package rollup + the system rollup — not the whole tree.
+
+Reproduce with `task test-e2e` (requires `claude` CLI logged in and `npx` on PATH).
 
 ## Design principles (Gen 3 harness engineering)
 
