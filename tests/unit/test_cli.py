@@ -62,11 +62,19 @@ def test_resume_is_wired_to_orchestrator(tmp_path: Path):
 
     runner.invoke(app, ["generate", "--repo", str(tmp_path), "--skip", "mermaid"])
     assert (tmp_path / "docs" / "design" / STATE_FILENAME).exists()
-    # Second run must not crash even though state already exists
+    # Second run must not crash with an unrelated exception. An empty tmp_path
+    # leads to FileNotFoundError on missing packages dir (Stage 4); the CLI
+    # maps that to exit code 2 via typer.Exit. Accept either the mapped exit
+    # or a bubbled FileNotFoundError — both mean "resume invoked the orchestrator".
     result = runner.invoke(app, ["resume", "--repo", str(tmp_path), "--skip", "mermaid"])
-    # exit_code may be nonzero because packages dir is still missing — but
-    # the crash, if any, must come from the pipeline, not from resume itself
-    assert result.exception is None or "packages dir" in str(result.exception)
+    exc = result.exception
+    if exc is not None:
+        if isinstance(exc, SystemExit):
+            assert exc.code in (0, 2), f"unexpected resume exit code: {exc.code}"
+        else:
+            assert "packages dir" in str(exc) or "stage" in str(exc).lower(), (
+                f"resume crashed with unrelated exception: {exc!r}"
+            )
 
 
 def test_resolve_not_yet_wired_exits_nonzero(tmp_path: Path):

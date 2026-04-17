@@ -45,12 +45,7 @@ class ClaudeSDKRunner:
         self.sdk = sdk if sdk is not None else _DefaultSDK()
 
     async def run(self, agent: AgentDef, prompt: str) -> RunResult:
-        options = {
-            "system_prompt": agent.system_prompt,
-            "model": agent.model,
-            "allowed_tools": agent.allowed_tools,
-            "mcp_servers": agent.mcp_servers,
-        }
+        options = _build_options(agent)
         resp = await self.sdk.query(prompt=prompt, options=options)
         usage = resp.get("usage", {}) or {}
         rec = UsageRecord(
@@ -68,6 +63,32 @@ class ClaudeSDKRunner:
         )
 
 
+def _build_options(agent: AgentDef) -> dict:
+    """Translate AgentDef into the options dict passed to the SDK.
+
+    When agent.mcp_servers is non-empty:
+    - Adds `mcp__<server>__*` entries to allowed_tools so the agent can
+      actually invoke each server's tools (the SDK doesn't auto-allow).
+    - Adds setting_sources=["user", "project", "local"] so MCP server
+      configs declared in ~/.claude.json, .mcp.json, or project local
+      flow through without us having to hand-wire each server's transport.
+    """
+    tools = list(agent.allowed_tools)
+    extras: dict = {}
+    if agent.mcp_servers:
+        for server in agent.mcp_servers:
+            tools.append(f"mcp__{server}__*")
+        extras["setting_sources"] = ["user", "project", "local"]
+
+    return {
+        "system_prompt": agent.system_prompt,
+        "model": agent.model,
+        "allowed_tools": tools,
+        "mcp_servers": list(agent.mcp_servers),
+        **extras,
+    }
+
+
 class _DefaultSDK:
     """Thin adapter over claude_agent_sdk.query(). Imported lazily so unit tests
     that use a FakeSDK don't require the real package to be importable at module load."""
@@ -81,11 +102,16 @@ class _DefaultSDK:
             query,
         )
 
+        extra: dict = {}
+        if options.get("setting_sources"):
+            extra["setting_sources"] = options["setting_sources"]
+        # MCP server dict is built from inherited settings — we don't pass
+        # explicit configs here; agent names flow via allowed_tools patterns.
         opts = ClaudeAgentOptions(
             system_prompt=options.get("system_prompt"),
             model=options.get("model"),
             allowed_tools=options.get("allowed_tools") or [],
-            # mcp_servers intentionally left unset in v1 runner — wire in Task 17
+            **extra,
         )
 
         text_parts: list[str] = []

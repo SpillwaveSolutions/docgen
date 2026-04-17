@@ -16,6 +16,7 @@ import anyio
 import typer
 
 from designdoc.budget import BUDGET_FILENAME, BudgetExceededError, CostAccumulator
+from designdoc.config import load_config
 from designdoc.mermaid.mmdc import MmdcNotAvailableError
 from designdoc.orchestrator import Orchestrator
 from designdoc.runner import ClaudeSDKRunner
@@ -49,11 +50,20 @@ def _resolve_output(repo: Path, output: Path | None) -> Path:
     return output if output is not None else repo / "docs" / "design"
 
 
-async def _run_orchestrator(repo: Path, output: Path, budget_usd: float, skip: set[str]) -> None:
+async def _run_orchestrator(
+    repo: Path,
+    output: Path,
+    budget_usd: float,
+    skip: set[str],
+    config_path: Path | None,
+) -> None:
+    config = load_config(config_path) if config_path else load_config(None)
     state = PipelineState.load_or_new(output_dir=output, target_repo=repo)
     budget = CostAccumulator.load_or_new(cap_usd=budget_usd, path=output / BUDGET_FILENAME)
     runner = ClaudeSDKRunner(budget=budget)
-    orchestrator = Orchestrator(state=state, runner=runner, budget=budget, skip_stages=skip)
+    orchestrator = Orchestrator(
+        state=state, runner=runner, budget=budget, config=config, skip_stages=skip
+    )
     await orchestrator.run()
 
 
@@ -70,7 +80,11 @@ def generate(
     out = _resolve_output(repo_p, output)
     skip_set = set(skip or [])
     try:
-        anyio.run(_run_orchestrator, repo_p, out, budget, skip_set)
+        anyio.run(_run_orchestrator, repo_p, out, budget, skip_set, config)
+    except FileNotFoundError as e:
+        # Most likely the --config path is missing; surface clearly
+        typer.echo(f"{e}", err=True)
+        raise typer.Exit(code=2) from e
     except MmdcNotAvailableError as e:
         typer.echo(f"mmdc preflight failed: {e}", err=True)
         typer.echo("Use --skip mermaid to proceed without mermaid diagrams.", err=True)

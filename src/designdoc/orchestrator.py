@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from designdoc.budget import BudgetExceededError, CostAccumulator
+from designdoc.config import Config
 from designdoc.mermaid.mmdc import MmdcNotAvailableError, preflight
 from designdoc.stages import (
     s0_discover,
@@ -63,13 +64,16 @@ class Orchestrator:
         state: PipelineState,
         runner,
         budget: CostAccumulator,
+        config: Config | None = None,
         skip_stages: set[str] | None = None,
         stages: list[StageEntry] | None = None,
     ):
         self.state = state
         self.runner = runner
         self.budget = budget
-        self.skip = skip_stages or set()
+        self.config = config or Config()
+        # Merge CLI skip + config skip — a stage listed in either is skipped.
+        self.skip = (skip_stages or set()) | set(self.config.skip_stages)
         self.stages = stages or default_stage_table()
 
     async def run(self) -> None:
@@ -96,6 +100,7 @@ class Orchestrator:
                 kwargs: dict[str, Any] = {"state": self.state}
                 if entry.needs_runner:
                     kwargs["runner"] = self.runner
+                kwargs.update(self._stage_kwargs(entry.name))
                 await entry.run(**kwargs)
                 self.budget.save()
             except BudgetExceededError:
@@ -103,3 +108,39 @@ class Orchestrator:
                 self.state.save()
                 self.budget.save()
                 raise
+
+    def _stage_kwargs(self, stage_name: str) -> dict[str, Any]:
+        """Per-stage kwargs derived from config. Only pass keys the stage accepts.
+
+        Kept explicit per-stage because the stage signatures diverge —
+        s2_file_analysis uses a pydantic schema checker (no checker_model),
+        s5_mermaid's models are driven by the mermaid_generator factory
+        directly, and s8_finalize is deterministic.
+        """
+        if stage_name == "discover":
+            return {"exclude_paths": list(self.config.exclude_paths)}
+        if stage_name == "file_analysis":
+            return {"doer_model": self.config.doer_model}
+        if stage_name in ("class_docs", "package_rollups", "system_rollup"):
+            return {
+                "doer_model": self.config.doer_model,
+                "checker_model": self.config.checker_model,
+            }
+        if stage_name == "tech_debt":
+            return {
+                "doer_model": self.config.doer_model,
+                "checker_model": self.config.checker_model,
+                "mcp_servers": _enabled_mcp(self.config),
+            }
+        return {}
+
+
+def _enabled_mcp(config: Config) -> list[str]:
+    servers: list[str] = []
+    if config.perplexity_mcp:
+        servers.append("perplexity")
+    if config.context7_mcp:
+        servers.append("context7")
+    if config.agent_brain_mcp:
+        servers.append("agent_brain")
+    return servers
