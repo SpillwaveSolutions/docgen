@@ -23,12 +23,16 @@ Against the `tests/fixtures/tiny_repo` fixture (5 Python files, 3 classes, 1 dep
 
 | Run | Wall clock | Cost (SDK-reported) | LLM invocations |
 |---|---|---|---|
-| **Cold** (first run) | ~26 min | ~$4.57 | 60 |
+| **Cold** (first run, parallelism=3) | ~16 min | ~$3.98 | 58 |
+| **Cold** (parallelism=1 baseline) | ~26 min | ~$4.57 | 60 |
 | **Warm** (no source changes) | < 1 sec | $0.00 | 0 |
 
-The warm run skips every stage via content-hash comparison against `prev_hashes` / `rollup_hashes` in the pipeline state. Any single-file edit regenerates only that file's class doc + its package rollup + the system rollup — not the whole tree.
+Two v1.1 optimizations combine here:
 
-Reproduce with `task test-e2e` (requires `claude` CLI logged in and `npx` on PATH).
+- **Parallelism:** `config.parallelism` (default 3) caps concurrent doer/checker invocations in Stages 2/3/4/6 via `asyncio.Semaphore`. Cold-run wall clock drops ~37% on tiny_repo; bigger repos with more files will see larger gains. Tune via `--parallelism N` or `[pipeline].parallelism` in `.designdoc.toml`.
+- **Incremental:** the warm run skips every stage via content-hash comparison against `prev_hashes` / `rollup_hashes` in the pipeline state. Any single-file edit regenerates only that file's class doc + its package rollup + the system rollup — not the whole tree.
+
+Run `designdoc status` to see which caches are primed. Reproduce with `task test-e2e` (requires `claude` CLI logged in and `npx` on PATH).
 
 ## Design principles (Gen 3 harness engineering)
 
