@@ -5,6 +5,16 @@ from __future__ import annotations
 from designdoc.agents.prompts import TECH_DEBT_CROSSREF_SYSTEM, TECH_DEBT_RESEARCHER_SYSTEM
 from designdoc.runner import AgentDef
 
+_DEFAULT_TECHDEBT_MCP: list[str] = ["perplexity", "context7"]
+
+
+def _resolve_mcp(mcp_servers: list[str] | None) -> list[str]:
+    """None = caller didn't specify, use defaults. `[]` = caller explicitly
+    wants no servers. Any other list passes through as-is."""
+    if mcp_servers is None:
+        return list(_DEFAULT_TECHDEBT_MCP)
+    return list(mcp_servers)
+
 
 def make_tech_debt_researcher(
     model: str = "claude-sonnet-4-6", mcp_servers: list[str] | None = None
@@ -15,7 +25,7 @@ def make_tech_debt_researcher(
         model=model,
         allowed_tools=[],
         max_output_tokens=1024,
-        mcp_servers=mcp_servers or ["perplexity", "context7"],
+        mcp_servers=_resolve_mcp(mcp_servers),
     )
 
 
@@ -28,7 +38,7 @@ def make_tech_debt_crossref(
         model=model,
         allowed_tools=[],
         max_output_tokens=1024,
-        mcp_servers=mcp_servers or ["perplexity", "context7"],
+        mcp_servers=_resolve_mcp(mcp_servers),
     )
 
 

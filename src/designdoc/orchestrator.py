@@ -74,7 +74,14 @@ class Orchestrator:
         self.config = config or Config()
         # Merge CLI skip + config skip — a stage listed in either is skipped.
         self.skip = (skip_stages or set()) | set(self.config.skip_stages)
-        self.stages = stages or default_stage_table()
+        all_stages = stages or default_stage_table()
+        # [stages].only is an allow-list: if non-empty, ONLY those stages run
+        # and every other stage is effectively skipped (regardless of --skip).
+        if self.config.only_stages:
+            allowed = set(self.config.only_stages)
+            self.stages = [s for s in all_stages if s.name in allowed]
+        else:
+            self.stages = all_stages
 
     async def run(self) -> None:
         """Run every stage in order, skipping DONE and filtered stages.

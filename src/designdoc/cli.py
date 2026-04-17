@@ -35,7 +35,12 @@ OutputOpt = Annotated[
     Path | None, typer.Option("--output", help="Output dir (default <repo>/docs/design)")
 ]
 ConfigOpt = Annotated[Path | None, typer.Option("--config", help="Path to .designdoc.toml")]
-BudgetOpt = Annotated[float, typer.Option("--budget", help="Max budget in USD")]
+# Budget defaults to None so we can tell "user set it" vs "use config/default".
+# Precedence: --budget flag > config.max_budget_usd > Config default (5.00).
+BudgetOpt = Annotated[
+    float | None,
+    typer.Option("--budget", help="Max budget in USD (overrides config.max_budget_usd)"),
+]
 SkipOpt = Annotated[
     list[str] | None,
     typer.Option("--skip", help="Stage names to skip (repeatable)"),
@@ -53,13 +58,15 @@ def _resolve_output(repo: Path, output: Path | None) -> Path:
 async def _run_orchestrator(
     repo: Path,
     output: Path,
-    budget_usd: float,
+    budget_usd: float | None,
     skip: set[str],
     config_path: Path | None,
 ) -> None:
     config = load_config(config_path) if config_path else load_config(None)
+    # Precedence: explicit --budget wins; otherwise config value wins.
+    cap_usd = budget_usd if budget_usd is not None else config.max_budget_usd
     state = PipelineState.load_or_new(output_dir=output, target_repo=repo)
-    budget = CostAccumulator.load_or_new(cap_usd=budget_usd, path=output / BUDGET_FILENAME)
+    budget = CostAccumulator.load_or_new(cap_usd=cap_usd, path=output / BUDGET_FILENAME)
     runner = ClaudeSDKRunner(budget=budget)
     orchestrator = Orchestrator(
         state=state, runner=runner, budget=budget, config=config, skip_stages=skip
@@ -72,19 +79,23 @@ def generate(
     repo: RepoOpt = None,
     output: OutputOpt = None,
     config: ConfigOpt = None,
-    budget: BudgetOpt = 5.00,
+    budget: BudgetOpt = None,
     skip: SkipOpt = None,
 ) -> None:
     """Run the full pipeline (stages 0-8)."""
     repo_p = _resolve_repo(repo)
     out = _resolve_output(repo_p, output)
     skip_set = set(skip or [])
+
+    # Validate --config up front so a missing path produces a distinct
+    # "config" error rather than conflating with stage-ordering errors
+    # deep in the pipeline (both raise FileNotFoundError).
+    if config is not None and not config.exists():
+        typer.echo(f"--config path not found: {config}", err=True)
+        raise typer.Exit(code=2)
+
     try:
         anyio.run(_run_orchestrator, repo_p, out, budget, skip_set, config)
-    except FileNotFoundError as e:
-        # Most likely the --config path is missing; surface clearly
-        typer.echo(f"{e}", err=True)
-        raise typer.Exit(code=2) from e
     except MmdcNotAvailableError as e:
         typer.echo(f"mmdc preflight failed: {e}", err=True)
         typer.echo("Use --skip mermaid to proceed without mermaid diagrams.", err=True)
@@ -100,7 +111,7 @@ def resume(
     repo: RepoOpt = None,
     output: OutputOpt = None,
     config: ConfigOpt = None,
-    budget: BudgetOpt = 5.00,
+    budget: BudgetOpt = None,
     skip: SkipOpt = None,
 ) -> None:
     """Resume from the last checkpoint. Identical code path as generate — the
