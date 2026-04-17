@@ -16,6 +16,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+_PUPPETEER_CONFIG = Path(__file__).with_name("puppeteer.json")
+
 
 class MmdcNotAvailableError(RuntimeError):
     """Raised when npx is missing or `npx --yes mmdc --version` fails."""
@@ -66,17 +68,23 @@ def validate(mermaid_text: str, *, timeout: float = 30.0) -> ValidationResult:
         src.write_text(mermaid_text)
         out = tmp / "diagram.svg"
         try:
+            cmd = [
+                "npx",
+                "--yes",
+                "@mermaid-js/mermaid-cli",
+                "-q",
+                "-i",
+                str(src),
+                "-o",
+                str(out),
+            ]
+            # Puppeteer's bundled Chromium needs --no-sandbox in rootless
+            # containers (GitHub Actions, Docker). Bundled config handles that
+            # without compromising desktop runs.
+            if _PUPPETEER_CONFIG.exists():
+                cmd.extend(["-p", str(_PUPPETEER_CONFIG)])
             r = subprocess.run(
-                [
-                    "npx",
-                    "--yes",
-                    "@mermaid-js/mermaid-cli",
-                    "-q",
-                    "-i",
-                    str(src),
-                    "-o",
-                    str(out),
-                ],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=timeout,

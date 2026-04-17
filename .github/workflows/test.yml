@@ -2,9 +2,10 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'fix/**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # CI-PARITY RULE:
 # Every step in this workflow MUST match a step in `task ci` (Taskfile.yml).
