@@ -2,10 +2,15 @@
 
 Reads dependency manifests, runs doer/checker loop per dep (both agents have
 Perplexity + Context7 MCP access), and emits TECH_DEBT.md with one row per dep.
+
+v1.1 incremental: hash the stable (name, pinned, source) triple set of
+parsed deps. Skip the whole stage if state.rollup_hashes["tech_debt"]
+matches AND TECH_DEBT.md is still on disk.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from designdoc.agents.tech_debt import (
@@ -14,12 +19,13 @@ from designdoc.agents.tech_debt import (
     make_tech_debt_crossref,
     make_tech_debt_researcher,
 )
-from designdoc.index.manifests import parse_manifests
+from designdoc.index.manifests import Dep, parse_manifests
 from designdoc.loop import doer_checker_loop
 from designdoc.state import PipelineState, StageStatus
 
 STAGE_NAME = "tech_debt"
 OUTPUT_FILENAME = "TECH_DEBT.md"
+ROLLUP_KEY = "tech_debt"
 
 
 async def run(
@@ -35,6 +41,16 @@ async def run(
     state.save()
 
     deps = parse_manifests(state.target_repo)
+    input_hash = _hash_deps(deps)
+    output_path = state.output_dir / OUTPUT_FILENAME
+
+    # Skip when deps unchanged AND the ledger is still on disk.
+    if state.rollup_hashes.get(ROLLUP_KEY) == input_hash and output_path.exists():
+        state.stages[STAGE_NAME] = StageStatus.DONE
+        state.current_stage = max(state.current_stage, 7)
+        state.save()
+        return []
+
     researcher = make_tech_debt_researcher(model=doer_model, mcp_servers=mcp_servers)
     crossref = make_tech_debt_crossref(model=checker_model, mcp_servers=mcp_servers)
 
@@ -59,11 +75,25 @@ async def run(
         row = _parse_report(result.text, dep, disputed=result.status != "pass")
         rows.append(row)
 
-    (state.output_dir / OUTPUT_FILENAME).write_text(_render_markdown(rows))
+    output_path.write_text(_render_markdown(rows))
+    state.rollup_hashes[ROLLUP_KEY] = input_hash
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 7)
     state.save()
     return rows
+
+
+def _hash_deps(deps: list[Dep]) -> str:
+    """Stable SHA1 over (name, pinned, source) sorted by name."""
+    h = hashlib.sha1()
+    for dep in sorted(deps, key=lambda d: d.name):
+        h.update(dep.name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(dep.pinned.encode("utf-8"))
+        h.update(b"\0")
+        h.update(dep.source.encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
 
 
 def _parse_report(text: str, dep, disputed: bool) -> dict:
