@@ -5,6 +5,10 @@ markdown doc and the doc-quality-checker verifies every claim against the
 source file. Full doer/checker loop with 3-attempt cap.
 
 Output path per class: <output>/packages/<pkg>/classes/<Class>.md
+
+v1.1 incremental behavior: when state.prev_hashes shows a source file's
+SHA1 is unchanged AND the corresponding class doc exists on disk, the
+doer/checker loop is skipped for every class in that file.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from designdoc.agents.doc_quality_checker import (
 )
 from designdoc.hil import inline_comment
 from designdoc.loop import doer_checker_loop
+from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus
 
@@ -52,12 +57,25 @@ async def run(
     doer = make_class_documenter(model=doer_model)
     checker = make_doc_quality_checker(model=checker_model)
 
+    unchanged_sources = _unchanged_source_paths(state)
+
     written: dict[str, str] = {}
     for sig in signatures:
         if sig.get("parse_error") or not sig.get("classes"):
             continue
+        source_unchanged = sig["path"] in unchanged_sources
         for cls in sig["classes"]:
             class_id = f"{sig['path']}::{cls['name']}"
+            out_path = _class_doc_path(state.output_dir, sig["path"], cls["name"])
+
+            if source_unchanged and out_path.exists():
+                # Source hasn't changed since last successful run and the doc
+                # is already on disk — no LLM call needed.
+                rel = str(out_path.relative_to(state.output_dir))
+                written[class_id] = rel
+                state.artifact_index[class_id] = rel
+                continue
+
             doer_prompt = build_class_prompt(
                 class_name=cls["name"],
                 source_path=sig["path"],
@@ -81,7 +99,6 @@ async def run(
                 hil_sink=state.hil_issues,
                 stage_name=STAGE_NAME,
             )
-            out_path = _class_doc_path(state.output_dir, sig["path"], cls["name"])
             out_path.parent.mkdir(parents=True, exist_ok=True)
             content = result.text
             if result.status == "shipped_with_hil":
@@ -98,6 +115,19 @@ async def run(
     state.current_stage = max(state.current_stage, 4)
     state.save()
     return written
+
+
+def _unchanged_source_paths(state: PipelineState) -> set[str]:
+    """Source paths whose SHA1 matches prev_hashes. Empty if Stage 0 output
+    is missing or unreadable — falls back to full regeneration."""
+    stage0_path = state.output_dir / STAGE0_FILENAME
+    if not stage0_path.exists() or not state.prev_hashes:
+        return set()
+    try:
+        current = json.loads(stage0_path.read_text()).get("hashes") or {}
+    except (json.JSONDecodeError, OSError):
+        return set()
+    return state.unchanged_paths(current)
 
 
 def _class_doc_path(output_dir: Path, source_path: str, class_name: str) -> Path:
