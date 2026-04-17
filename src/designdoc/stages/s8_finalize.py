@@ -7,9 +7,11 @@ hil-issues.yaml. Safe to re-run on the same directory.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from designdoc.hil import HILIssue, append_issue
+from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
 from designdoc.state import PipelineState, StageStatus
 
 STAGE_NAME = "finalize"
@@ -33,6 +35,10 @@ async def run(*, state: PipelineState) -> dict[str, str]:
     for issue in state.hil_issues:
         append_issue(hil_path, _to_hil_issue(issue))
 
+    # Promote Stage 0's hashes into prev_hashes so the NEXT run has a
+    # baseline to diff against for incremental regeneration.
+    _promote_current_hashes(state, output)
+
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 9)
     state.save()
@@ -40,6 +46,21 @@ async def run(*, state: PipelineState) -> dict[str, str]:
         "readme": str(readme_path.relative_to(output)),
         "hil": str(hil_path.relative_to(output)) if hil_path.exists() else "",
     }
+
+
+def _promote_current_hashes(state: PipelineState, output: Path) -> None:
+    """Copy the current run's Stage 0 hashes into state.prev_hashes.
+
+    No-op if Stage 0 didn't run (incremental-only pipelines, or test
+    harnesses that invoke Stage 8 in isolation).
+    """
+    stage0_path = output / STAGE0_FILENAME
+    if not stage0_path.exists():
+        return
+    data = json.loads(stage0_path.read_text())
+    hashes = data.get("hashes") or {}
+    if hashes:
+        state.prev_hashes = dict(hashes)
 
 
 def _to_hil_issue(raw: dict) -> HILIssue:
