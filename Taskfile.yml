@@ -1,0 +1,32 @@
+version: '3'
+
+tasks:
+  install:
+    desc: Install deps into a uv-managed venv
+    cmds: [uv sync]
+
+  test:
+    desc: Unit + integration tests (no real API)
+    cmds: [uv run pytest tests/unit tests/integration -m "not requires_api" -v]
+
+  test-unit:
+    desc: Unit tests only
+    cmds: [uv run pytest tests/unit -v]
+
+  test-e2e:
+    desc: End-to-end tests (real API, gated)
+    cmds: [uv run pytest tests/e2e -v]
+
+  lint:
+    cmds: [uv run ruff check src tests]
+
+  format:
+    cmds: [uv run ruff format src tests]
+
+  typecheck:
+    desc: Reserved for future mypy integration
+    cmds: ["echo 'typecheck not yet configured'"]
+
+  dogfood:
+    desc: Run designdoc against tests/fixtures/tiny_repo
+    cmds: [uv run designdoc generate --repo tests/fixtures/tiny_repo --budget 2.00]

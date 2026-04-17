@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+
+# uv
+# uv.lock is committed; .venv is not
+
+# designdoc runtime state — never committed
+.designdoc-state.json
+.designdoc-budget.json
+docs/design/.designdoc-state.json
+docs/design/.designdoc-budget.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

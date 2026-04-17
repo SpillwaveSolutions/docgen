@@ -1,0 +1,31 @@
+# designdoc configuration — copy to .designdoc.toml in your target repo to customize.
+#
+# NOTE: max_attempts is intentionally NOT exposed here. It is a hard constant (3) in
+# src/designdoc/loop.py and cannot be overridden. This is by design — see CLAUDE.md §3.
+
+[pipeline]
+max_budget_usd = 5.00         # hard cost cap; pipeline halts clean when exceeded
+parallelism    = 3             # max concurrent LLM invocations per stage
+resume         = true          # pick up from last checkpoint on restart
+
+[stages]
+skip = []                      # stages to skip, e.g. ["tech_debt"]
+only = []                      # run only these stages, e.g. ["class_docs"]
+
+[languages]
+include       = ["python", "typescript", "javascript", "java", "go", "rust"]
+exclude_paths = ["node_modules", ".venv", "venv", "dist", "build", "target", ".git"]
+
+[mcp]
+perplexity  = true
+context7    = true
+agent_brain = false            # v1.1
+
+[output]
+dir             = "docs/design"
+diagram_format  = "mermaid"    # v1 only supports mermaid
+
+[models]
+# Default models. Override per-agent is not yet supported in v1.
+doer    = "claude-sonnet-4-6"
+checker = "claude-sonnet-4-6"  # set to "claude-haiku-4-5-20251001" to save cost
