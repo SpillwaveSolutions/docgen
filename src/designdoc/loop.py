@@ -19,8 +19,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from pydantic import BaseModel, ValidationError
+
 from designdoc.runner import AgentDef  # noqa: F401 — re-export for callers
-from designdoc.verdict import CheckerVerdict, parse_verdict
+from designdoc.verdict import CheckerIssue, CheckerVerdict, parse_verdict
 
 MAX_ATTEMPTS: int = 3
 """CANONICAL. Enforced here, nowhere else. Do not expose in config."""
@@ -134,3 +136,65 @@ def _max_severity(v: CheckerVerdict) -> str:
 
 def _first_issue_text(v: CheckerVerdict) -> str:
     return v.issues[0].suggested_fix if v.issues else ""
+
+
+async def doer_schema_loop(
+    *,
+    artifact_id: str,
+    doer: AgentDef,
+    doer_prompt: str,
+    schema_model: type[BaseModel],
+    runner: Any,
+    hil_sink: list[dict],
+    stage_name: str = "unknown",
+) -> ArtifactResult:
+    """Like doer_checker_loop but the checker is a pydantic schema.
+
+    Use when the doer's output is strictly-structured and a parser suffices —
+    saves the cost of a second LLM call. The retry prompt includes the exact
+    pydantic ValidationError so the doer can self-correct the JSON shape.
+    """
+    current_text = (await runner.run(doer, doer_prompt)).text
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            schema_model.model_validate_json(current_text)
+            verdict = CheckerVerdict(
+                status="pass", attempt=attempt, artifact_id=artifact_id, summary="schema ok"
+            )
+            return ArtifactResult(artifact_id, "pass", current_text, attempt, verdict)
+        except ValidationError as e:
+            issues = [
+                CheckerIssue(
+                    severity="major",
+                    location=".".join(str(p) for p in err["loc"]) or "<root>",
+                    current_text=str(err.get("input", ""))[:120],
+                    suggested_fix=err.get("msg", "fix this field"),
+                )
+                for err in e.errors()
+            ] or [
+                CheckerIssue(
+                    severity="major",
+                    location="<root>",
+                    current_text=current_text[:120],
+                    suggested_fix="return valid JSON matching the required schema",
+                )
+            ]
+            verdict = CheckerVerdict(
+                status="fail",
+                attempt=attempt,
+                artifact_id=artifact_id,
+                summary=f"schema validation failed: {type(e).__name__}",
+                issues=issues,
+            )
+
+        if attempt == MAX_ATTEMPTS:
+            hil_sink.append(
+                _build_hil_entry(artifact_id, stage_name, current_text, verdict, attempt, hil_sink)
+            )
+            return ArtifactResult(artifact_id, "shipped_with_hil", current_text, attempt, verdict)
+
+        retry_prompt = _build_retry_prompt(doer_prompt, current_text, verdict)
+        current_text = (await runner.run(doer, retry_prompt)).text
+
+    raise AssertionError("unreachable")  # pragma: no cover
