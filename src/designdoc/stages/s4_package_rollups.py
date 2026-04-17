@@ -12,6 +12,7 @@ made. On any change, regenerate and update the recorded hash.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 
@@ -34,6 +35,7 @@ async def run(
     runner,
     doer_model: str = "claude-sonnet-4-6",
     checker_model: str = "claude-sonnet-4-6",
+    parallelism: int = 1,
 ) -> dict[str, str]:
     """Execute Stage 4. Returns {package_name: readme_path}."""
     packages_dir = state.output_dir / "packages"
@@ -47,6 +49,7 @@ async def run(
     checker = make_package_doc_checker(model=checker_model)
 
     written: dict[str, str] = {}
+    to_process: list[tuple[str, dict[str, str], str, Path]] = []
     for pkg_dir in sorted(p for p in packages_dir.iterdir() if p.is_dir()):
         class_docs = _collect_class_docs(pkg_dir)
         if not class_docs:
@@ -56,35 +59,42 @@ async def run(
         input_hash = _hash_class_docs(class_docs)
         readme_path = pkg_dir / "README.md"
 
-        # Skip if inputs match the last successful regeneration AND the
-        # README is actually on disk (guard against manual deletes).
         if state.rollup_hashes.get(rollup_key) == input_hash and readme_path.exists():
             written[pkg_name] = str(readme_path.relative_to(state.output_dir))
             continue
+        to_process.append((pkg_name, class_docs, input_hash, readme_path))
 
-        doer_prompt = build_doer_prompt(pkg_name, class_docs)
+    sem = asyncio.Semaphore(max(1, parallelism))
 
-        def checker_prompt_fn(readme: str, *, _pkg=pkg_name, _docs=class_docs) -> str:
-            return build_checker_prompt(_pkg, _docs, readme)
+    async def _one(pkg_name, class_docs, input_hash, readme_path):
+        async with sem:
+            doer_prompt = build_doer_prompt(pkg_name, class_docs)
 
-        result = await doer_checker_loop(
-            artifact_id=f"package:{pkg_name}",
-            doer=doer,
-            checker=checker,
-            doer_prompt=doer_prompt,
-            checker_prompt_fn=checker_prompt_fn,
-            runner=runner,
-            hil_sink=state.hil_issues,
-            stage_name=STAGE_NAME,
-        )
+            def checker_prompt_fn(readme: str, *, _pkg=pkg_name, _docs=class_docs) -> str:
+                return build_checker_prompt(_pkg, _docs, readme)
 
-        content = result.text
-        if result.status == "shipped_with_hil":
-            hil_id = state.hil_issues[-1]["id"]
-            content = f"{inline_comment(hil_id, 'package rollup disputed')}\n\n" + content
-        readme_path.write_text(content)
-        written[pkg_name] = str(readme_path.relative_to(state.output_dir))
-        state.rollup_hashes[rollup_key] = input_hash
+            result = await doer_checker_loop(
+                artifact_id=f"package:{pkg_name}",
+                doer=doer,
+                checker=checker,
+                doer_prompt=doer_prompt,
+                checker_prompt_fn=checker_prompt_fn,
+                runner=runner,
+                hil_sink=state.hil_issues,
+                stage_name=STAGE_NAME,
+            )
+            content = result.text
+            if result.status == "shipped_with_hil":
+                hil_id = state.hil_issues[-1]["id"]
+                content = f"{inline_comment(hil_id, 'package rollup disputed')}\n\n" + content
+            readme_path.write_text(content)
+            return pkg_name, str(readme_path.relative_to(state.output_dir)), input_hash
+
+    for pkg_name, rel_path, input_hash in await asyncio.gather(
+        *[_one(*args) for args in to_process]
+    ):
+        written[pkg_name] = rel_path
+        state.rollup_hashes[f"package:{pkg_name}"] = input_hash
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 5)

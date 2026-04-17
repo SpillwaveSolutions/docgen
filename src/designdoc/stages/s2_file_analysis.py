@@ -14,6 +14,7 @@ since the last successful run reuse their existing summary — zero LLM calls.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from designdoc.agents.file_analyzer import FileSummary, build_prompt, make_file_analyzer
@@ -27,9 +28,17 @@ OUTPUT_FILENAME = "stage2_summaries.json"
 
 
 async def run(
-    *, state: PipelineState, runner, doer_model: str = "claude-sonnet-4-6"
+    *,
+    state: PipelineState,
+    runner,
+    doer_model: str = "claude-sonnet-4-6",
+    parallelism: int = 1,
 ) -> dict[str, dict]:
-    """Execute Stage 2. Returns {relative_path: summary_dict}."""
+    """Execute Stage 2. Returns {relative_path: summary_dict}.
+
+    `parallelism` caps concurrent doer invocations via asyncio.Semaphore.
+    Default 1 preserves serial behavior.
+    """
     stage1_path = state.output_dir / STAGE1_FILENAME
     if not stage1_path.exists():
         raise FileNotFoundError(f"stage 1 output missing ({stage1_path}); run stage 1 first")
@@ -43,30 +52,37 @@ async def run(
     reusable = _load_reusable_summaries(state)
 
     results: dict[str, dict] = {}
+    to_process: list[dict] = []
     for sig in signatures:
         path = sig["path"]
-        # Skip files that failed to parse in Stage 1 — we have nothing to summarize
+        # Skip files that failed to parse in Stage 1 — nothing to summarize.
         if sig.get("parse_error"):
             continue
-
         if path in reusable:
             # Unchanged file + previous summary exists — no LLM call needed.
             results[path] = reusable[path]
             continue
+        to_process.append(sig)
 
-        prompt = build_prompt(path, json.dumps(sig, indent=2))
-        result = await doer_schema_loop(
-            artifact_id=f"file:{path}",
-            doer=doer,
-            doer_prompt=prompt,
-            schema_model=FileSummary,
-            runner=runner,
-            hil_sink=state.hil_issues,
-            stage_name=STAGE_NAME,
-        )
-        # Persist whatever shipped — valid FileSummary JSON or the raw doer
-        # output on HIL path. Downstream stages must tolerate both shapes.
-        results[path] = _parse_or_placeholder(result.text, path)
+    sem = asyncio.Semaphore(max(1, parallelism))
+
+    async def _one(sig: dict) -> tuple[str, dict]:
+        path = sig["path"]
+        async with sem:
+            prompt = build_prompt(path, json.dumps(sig, indent=2))
+            result = await doer_schema_loop(
+                artifact_id=f"file:{path}",
+                doer=doer,
+                doer_prompt=prompt,
+                schema_model=FileSummary,
+                runner=runner,
+                hil_sink=state.hil_issues,
+                stage_name=STAGE_NAME,
+            )
+            return path, _parse_or_placeholder(result.text, path)
+
+    for path, summary in await asyncio.gather(*[_one(s) for s in to_process]):
+        results[path] = summary
 
     (state.output_dir / OUTPUT_FILENAME).write_text(json.dumps(results, indent=2))
     state.stages[STAGE_NAME] = StageStatus.DONE

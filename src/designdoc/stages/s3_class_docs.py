@@ -13,6 +13,7 @@ doer/checker loop is skipped for every class in that file.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -44,8 +45,11 @@ async def run(
     runner,
     doer_model: str = "claude-sonnet-4-6",
     checker_model: str = "claude-sonnet-4-6",
+    parallelism: int = 1,
 ) -> dict[str, str]:
-    """Execute Stage 3. Returns {class_id: output_path}."""
+    """Execute Stage 3. Returns {class_id: output_path}.
+
+    `parallelism` caps concurrent per-class doer/checker loops."""
     stage1_path = state.output_dir / STAGE1_FILENAME
     if not stage1_path.exists():
         raise FileNotFoundError(f"stage 1 output missing ({stage1_path})")
@@ -60,6 +64,7 @@ async def run(
     unchanged_sources = _unchanged_source_paths(state)
 
     written: dict[str, str] = {}
+    to_process: list[tuple[dict, dict]] = []
     for sig in signatures:
         if sig.get("parse_error") or not sig.get("classes"):
             continue
@@ -75,7 +80,15 @@ async def run(
                 written[class_id] = rel
                 state.artifact_index[class_id] = rel
                 continue
+            to_process.append((sig, cls))
 
+    sem = asyncio.Semaphore(max(1, parallelism))
+
+    async def _one(sig: dict, cls: dict) -> tuple[str, str]:
+        class_id = f"{sig['path']}::{cls['name']}"
+        out_path = _class_doc_path(state.output_dir, sig["path"], cls["name"])
+
+        async with sem:
             doer_prompt = build_class_prompt(
                 class_name=cls["name"],
                 source_path=sig["path"],
@@ -102,14 +115,17 @@ async def run(
             out_path.parent.mkdir(parents=True, exist_ok=True)
             content = result.text
             if result.status == "shipped_with_hil":
-                # Prefix an HIL marker so a reader sees it before the body.
                 hil_id = state.hil_issues[-1]["id"]
                 content = (
                     f"{inline_comment(hil_id, 'doc-quality checker disputed claims')}\n\n" + content
                 )
             out_path.write_text(content)
-            written[class_id] = str(out_path.relative_to(state.output_dir))
-            state.artifact_index[class_id] = str(out_path.relative_to(state.output_dir))
+            rel = str(out_path.relative_to(state.output_dir))
+            return class_id, rel
+
+    for class_id, rel in await asyncio.gather(*[_one(s, c) for s, c in to_process]):
+        written[class_id] = rel
+        state.artifact_index[class_id] = rel
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 4)

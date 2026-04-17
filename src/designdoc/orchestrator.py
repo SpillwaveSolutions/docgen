@@ -124,11 +124,19 @@ class Orchestrator:
         s5_mermaid's models are driven by the mermaid_generator factory
         directly, and s8_finalize is deterministic.
         """
+        p = self.config.parallelism
         if stage_name == "discover":
             return {"exclude_paths": list(self.config.exclude_paths)}
         if stage_name == "file_analysis":
-            return {"doer_model": self.config.doer_model}
-        if stage_name in ("class_docs", "package_rollups", "system_rollup"):
+            return {"doer_model": self.config.doer_model, "parallelism": p}
+        if stage_name in ("class_docs", "package_rollups"):
+            return {
+                "doer_model": self.config.doer_model,
+                "checker_model": self.config.checker_model,
+                "parallelism": p,
+            }
+        if stage_name == "system_rollup":
+            # Single-artifact stage — no parallelism benefit.
             return {
                 "doer_model": self.config.doer_model,
                 "checker_model": self.config.checker_model,
@@ -138,6 +146,7 @@ class Orchestrator:
                 "doer_model": self.config.doer_model,
                 "checker_model": self.config.checker_model,
                 "mcp_servers": _enabled_mcp(self.config),
+                "parallelism": p,
             }
         return {}
 

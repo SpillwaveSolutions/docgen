@@ -10,6 +10,7 @@ matches AND TECH_DEBT.md is still on disk.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 
@@ -35,6 +36,7 @@ async def run(
     doer_model: str = "claude-sonnet-4-6",
     checker_model: str = "claude-sonnet-4-6",
     mcp_servers: list[str] | None = None,
+    parallelism: int = 1,
 ) -> list[dict]:
     """Execute Stage 6. Returns the list of tech-debt entries (one per dep)."""
     state.stages[STAGE_NAME] = StageStatus.RUNNING
@@ -54,26 +56,28 @@ async def run(
     researcher = make_tech_debt_researcher(model=doer_model, mcp_servers=mcp_servers)
     crossref = make_tech_debt_crossref(model=checker_model, mcp_servers=mcp_servers)
 
-    rows: list[dict] = []
-    for dep in deps:
-        doer_prompt = build_researcher_prompt(dep.name, dep.pinned)
+    sem = asyncio.Semaphore(max(1, parallelism))
 
-        def checker_prompt_fn(research_json: str, *, _name=dep.name, _pin=dep.pinned) -> str:
-            return build_crossref_prompt(_name, _pin, research_json)
+    async def _one(dep):
+        async with sem:
+            doer_prompt = build_researcher_prompt(dep.name, dep.pinned)
 
-        result = await doer_checker_loop(
-            artifact_id=f"dep:{dep.name}",
-            doer=researcher,
-            checker=crossref,
-            doer_prompt=doer_prompt,
-            checker_prompt_fn=checker_prompt_fn,
-            runner=runner,
-            hil_sink=state.hil_issues,
-            stage_name=STAGE_NAME,
-        )
+            def checker_prompt_fn(research_json: str, *, _name=dep.name, _pin=dep.pinned) -> str:
+                return build_crossref_prompt(_name, _pin, research_json)
 
-        row = _parse_report(result.text, dep, disputed=result.status != "pass")
-        rows.append(row)
+            result = await doer_checker_loop(
+                artifact_id=f"dep:{dep.name}",
+                doer=researcher,
+                checker=crossref,
+                doer_prompt=doer_prompt,
+                checker_prompt_fn=checker_prompt_fn,
+                runner=runner,
+                hil_sink=state.hil_issues,
+                stage_name=STAGE_NAME,
+            )
+            return _parse_report(result.text, dep, disputed=result.status != "pass")
+
+    rows: list[dict] = list(await asyncio.gather(*[_one(dep) for dep in deps]))
 
     output_path.write_text(_render_markdown(rows))
     state.rollup_hashes[ROLLUP_KEY] = input_hash
