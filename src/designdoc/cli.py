@@ -9,6 +9,7 @@ Four subcommands:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -28,6 +29,17 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+
+def _configure_logging() -> None:
+    """Configure root logger so orchestrator progress surfaces on stderr.
+
+    Idempotent — skips if the root logger already has handlers (e.g.
+    pytest's caplog fixture manages its own)."""
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 
 RepoOpt = Annotated[Path | None, typer.Option("--repo", help="Target repository path")]
@@ -102,6 +114,7 @@ def generate(
     parallelism: ParallelismOpt = None,
 ) -> None:
     """Run the full pipeline (stages 0-8)."""
+    _configure_logging()
     repo_p = _resolve_repo(repo)
     skip_set = set(skip or [])
 

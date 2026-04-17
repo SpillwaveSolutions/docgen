@@ -11,6 +11,7 @@ Rules:
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -96,13 +97,16 @@ class Orchestrator:
                 log.exception("mmdc preflight failed; pass skip_stages={'mermaid'} or install it")
                 raise
 
-        for entry in self.stages:
+        total = len(self.stages)
+        for idx, entry in enumerate(self.stages, start=1):
             if entry.name in self.skip:
-                log.info("stage %s skipped by config", entry.name)
+                log.info("[%d/%d] stage %s skipped by config", idx, total, entry.name)
                 continue
             if self.state.stages.get(entry.name) == StageStatus.DONE:
-                log.info("stage %s already done, skipping", entry.name)
+                log.info("[%d/%d] stage %s already done, skipping", idx, total, entry.name)
                 continue
+            log.info("[%d/%d] stage %s starting", idx, total, entry.name)
+            start = time.monotonic()
             try:
                 kwargs: dict[str, Any] = {"state": self.state}
                 if entry.needs_runner:
@@ -114,7 +118,21 @@ class Orchestrator:
                 self.state.stages[entry.name] = StageStatus.FAILED
                 self.state.save()
                 self.budget.save()
+                log.info(
+                    "[%d/%d] stage %s FAILED after %.1fs (budget exceeded)",
+                    idx,
+                    total,
+                    entry.name,
+                    time.monotonic() - start,
+                )
                 raise
+            log.info(
+                "[%d/%d] stage %s done in %.1fs",
+                idx,
+                total,
+                entry.name,
+                time.monotonic() - start,
+            )
 
     def _stage_kwargs(self, stage_name: str) -> dict[str, Any]:
         """Per-stage kwargs derived from config. Only pass keys the stage accepts.
