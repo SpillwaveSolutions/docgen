@@ -3,10 +3,16 @@
 Reads only the generated class docs from Stage 3 — never source. For each
 package dir containing class docs, runs the doer/checker loop to produce a
 package README.md at packages/<pkg>/README.md.
+
+v1.1 incremental: SHA1 the concatenation of class docs (sorted by filename)
+and compare against state.rollup_hashes["package:<name>"]. On match, the
+package README from the previous run is kept untouched and no LLM call is
+made. On any change, regenerate and update the recorded hash.
 """
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from designdoc.agents.package_documenter import (
@@ -46,6 +52,15 @@ async def run(
         if not class_docs:
             continue
         pkg_name = pkg_dir.name
+        rollup_key = f"package:{pkg_name}"
+        input_hash = _hash_class_docs(class_docs)
+        readme_path = pkg_dir / "README.md"
+
+        # Skip if inputs match the last successful regeneration AND the
+        # README is actually on disk (guard against manual deletes).
+        if state.rollup_hashes.get(rollup_key) == input_hash and readme_path.exists():
+            written[pkg_name] = str(readme_path.relative_to(state.output_dir))
+            continue
 
         doer_prompt = build_doer_prompt(pkg_name, class_docs)
 
@@ -63,13 +78,13 @@ async def run(
             stage_name=STAGE_NAME,
         )
 
-        readme_path = pkg_dir / "README.md"
         content = result.text
         if result.status == "shipped_with_hil":
             hil_id = state.hil_issues[-1]["id"]
             content = f"{inline_comment(hil_id, 'package rollup disputed')}\n\n" + content
         readme_path.write_text(content)
         written[pkg_name] = str(readme_path.relative_to(state.output_dir))
+        state.rollup_hashes[rollup_key] = input_hash
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 5)
@@ -86,3 +101,14 @@ def _collect_class_docs(pkg_dir: Path) -> dict[str, str]:
         for p in sorted(classes_dir.glob("*.md"))
         if not p.name.startswith(".")
     }
+
+
+def _hash_class_docs(class_docs: dict[str, str]) -> str:
+    """Stable SHA1 over class docs keyed by filename (sorted)."""
+    h = hashlib.sha1()
+    for name in sorted(class_docs):
+        h.update(name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(class_docs[name].encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()

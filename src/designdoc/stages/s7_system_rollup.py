@@ -1,6 +1,13 @@
-"""Stage 7: system + architecture rollup from package READMEs."""
+"""Stage 7: system + architecture rollup from package READMEs.
+
+v1.1 incremental: SHA1 the concatenation of package READMEs (sorted by name)
+and compare against state.rollup_hashes["system:rollup"]. On match, keep the
+existing SYSTEM_DESIGN.md + ARCHITECTURE.md and skip the LLM call.
+"""
 
 from __future__ import annotations
+
+import hashlib
 
 from designdoc.agents.system_designer import (
     build_checker_prompt,
@@ -16,6 +23,7 @@ from designdoc.state import PipelineState, StageStatus
 STAGE_NAME = "system_rollup"
 SYSTEM_FILENAME = "SYSTEM_DESIGN.md"
 ARCHITECTURE_FILENAME = "ARCHITECTURE.md"
+ROLLUP_KEY = "system:rollup"
 
 
 async def run(
@@ -36,6 +44,25 @@ async def run(
 
     state.stages[STAGE_NAME] = StageStatus.RUNNING
     state.save()
+
+    sys_path = state.output_dir / SYSTEM_FILENAME
+    arch_path = state.output_dir / ARCHITECTURE_FILENAME
+    input_hash = _hash_readmes(pkg_readmes)
+
+    # Skip when inputs match the last successful regeneration AND both
+    # outputs still exist (guard against manual deletes).
+    if (
+        state.rollup_hashes.get(ROLLUP_KEY) == input_hash
+        and sys_path.exists()
+        and arch_path.exists()
+    ):
+        state.stages[STAGE_NAME] = StageStatus.DONE
+        state.current_stage = max(state.current_stage, 8)
+        state.save()
+        return {
+            SYSTEM_FILENAME: str(sys_path.relative_to(state.output_dir)),
+            ARCHITECTURE_FILENAME: str(arch_path.relative_to(state.output_dir)),
+        }
 
     doer = make_system_designer(model=doer_model)
     checker = make_system_checker(model=checker_model)
@@ -62,11 +89,10 @@ async def run(
         sys_md = prefix + sys_md
         arch_md = prefix + arch_md
 
-    sys_path = state.output_dir / SYSTEM_FILENAME
-    arch_path = state.output_dir / ARCHITECTURE_FILENAME
     sys_path.write_text(sys_md)
     arch_path.write_text(arch_md)
 
+    state.rollup_hashes[ROLLUP_KEY] = input_hash
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 8)
     state.save()
@@ -78,3 +104,14 @@ async def run(
 
 def _collect_readmes(packages_dir) -> dict[str, str]:
     return {p.parent.name: p.read_text() for p in sorted(packages_dir.glob("*/README.md"))}
+
+
+def _hash_readmes(readmes: dict[str, str]) -> str:
+    """Stable SHA1 over package READMEs keyed by package name (sorted)."""
+    h = hashlib.sha1()
+    for name in sorted(readmes):
+        h.update(name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(readmes[name].encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()

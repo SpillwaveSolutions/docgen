@@ -36,6 +36,11 @@ class PipelineState:
     # Incremental stages compare current Stage-0 hashes against this to
     # decide which source files need re-analysis.
     prev_hashes: dict[str, str] = field(default_factory=dict)
+    # rollup_hashes: per-artifact SHA1 of a stage's INPUTS, keyed by
+    # artifact_id (e.g. "package:payments", "mermaid:StripeGateway",
+    # "system:rollup"). Lets rollup stages detect when their upstream
+    # hasn't changed since the last successful regeneration.
+    rollup_hashes: dict[str, str] = field(default_factory=dict)
 
     @property
     def state_path(self) -> Path:
@@ -76,5 +81,6 @@ class PipelineState:
                 hil_issues=d["hil_issues"],
                 artifact_index=d["artifact_index"],
                 prev_hashes=d.get("prev_hashes", {}),
+                rollup_hashes=d.get("rollup_hashes", {}),
             )
         return cls(target_repo=target_repo, output_dir=output_dir)
