@@ -11,6 +11,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+BUDGET_FILENAME = ".designdoc-budget.json"
+
 
 class BudgetExceededError(Exception):
     """Raised when an accrual would push total cost past the configured cap."""
