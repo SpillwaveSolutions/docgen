@@ -45,6 +45,13 @@ SkipOpt = Annotated[
     list[str] | None,
     typer.Option("--skip", help="Stage names to skip (repeatable)"),
 ]
+ParallelismOpt = Annotated[
+    int | None,
+    typer.Option(
+        "--parallelism",
+        help="Max concurrent LLM calls per stage (overrides config.parallelism)",
+    ),
+]
 
 
 def _resolve_repo(repo: Path | None) -> Path:
@@ -67,8 +74,12 @@ async def _run_orchestrator(
     budget_usd: float | None,
     skip: set[str],
     config_path: Path | None,
+    parallelism_flag: int | None,
 ) -> None:
     config = load_config(config_path) if config_path else load_config(None)
+    # Precedence: --parallelism flag > config.parallelism > Config default (3).
+    if parallelism_flag is not None:
+        config = config.model_copy(update={"parallelism": parallelism_flag})
     output = _resolve_output(repo, output_flag, config.output_dir)
     # Precedence: explicit --budget wins; otherwise config value wins.
     cap_usd = budget_usd if budget_usd is not None else config.max_budget_usd
@@ -88,10 +99,15 @@ def generate(
     config: ConfigOpt = None,
     budget: BudgetOpt = None,
     skip: SkipOpt = None,
+    parallelism: ParallelismOpt = None,
 ) -> None:
     """Run the full pipeline (stages 0-8)."""
     repo_p = _resolve_repo(repo)
     skip_set = set(skip or [])
+
+    if parallelism is not None and parallelism < 1:
+        typer.echo(f"--parallelism must be >= 1; got {parallelism}", err=True)
+        raise typer.Exit(code=2)
 
     # Validate --config up front so a missing path produces a distinct
     # "config" error rather than conflating with stage-ordering errors
@@ -118,7 +134,7 @@ def generate(
         raise
 
     try:
-        anyio.run(_run_orchestrator, repo_p, output, budget, skip_set, config)
+        anyio.run(_run_orchestrator, repo_p, output, budget, skip_set, config, parallelism)
     except MmdcNotAvailableError as e:
         typer.echo(f"mmdc preflight failed: {e}", err=True)
         typer.echo("Use --skip mermaid to proceed without mermaid diagrams.", err=True)
@@ -136,10 +152,18 @@ def resume(
     config: ConfigOpt = None,
     budget: BudgetOpt = None,
     skip: SkipOpt = None,
+    parallelism: ParallelismOpt = None,
 ) -> None:
     """Resume from the last checkpoint. Identical code path as generate — the
     orchestrator skips DONE stages automatically."""
-    generate(repo=repo, output=output, config=config, budget=budget, skip=skip)
+    generate(
+        repo=repo,
+        output=output,
+        config=config,
+        budget=budget,
+        skip=skip,
+        parallelism=parallelism,
+    )
 
 
 @app.command()
