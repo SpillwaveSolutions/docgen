@@ -1,0 +1,31 @@
+"""Stage 0: discover languages and file tree.
+
+No LLM. Walks the target repo, writes stage0_discovery.json to the output dir,
+and marks the discover stage DONE.
+"""
+
+from __future__ import annotations
+
+import json
+
+from designdoc.index.discover import DiscoveryReport, discover
+from designdoc.state import PipelineState, StageStatus
+
+STAGE_NAME = "discover"
+OUTPUT_FILENAME = "stage0_discovery.json"
+
+
+async def run(*, state: PipelineState, exclude_paths: list[str] | None = None) -> DiscoveryReport:
+    """Execute Stage 0 and checkpoint the result."""
+    state.stages[STAGE_NAME] = StageStatus.RUNNING
+    state.save()
+
+    report = discover(state.target_repo, exclude_paths=exclude_paths)
+
+    state.output_dir.mkdir(parents=True, exist_ok=True)
+    (state.output_dir / OUTPUT_FILENAME).write_text(json.dumps(report.to_dict(), indent=2))
+
+    state.stages[STAGE_NAME] = StageStatus.DONE
+    state.current_stage = max(state.current_stage, 1)
+    state.save()
+    return report
