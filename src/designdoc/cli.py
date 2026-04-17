@@ -128,11 +128,62 @@ def status(
         )
 
 
+EmitQuestionsOpt = Annotated[
+    bool,
+    typer.Option("--emit-questions", help="Print JSON describing the first open HIL issue"),
+]
+ApplyFixOpt = Annotated[
+    str | None,
+    typer.Option("--apply-fix", help="HIL id whose artifact should be patched"),
+]
+FixTextOpt = Annotated[
+    str | None,
+    typer.Option("--fix", help="Replacement text for --apply-fix"),
+]
+
+
 @app.command()
 def resolve(
     repo: RepoOpt = None,
     output: OutputOpt = None,
+    emit_questions: EmitQuestionsOpt = False,
+    apply_fix: ApplyFixOpt = None,
+    fix: FixTextOpt = None,
 ) -> None:
-    """Walk open HIL issues using AskUserQuestion (plugin-driven in Task 22)."""
-    typer.echo("resolve is not yet wired — Task 22 implements the HIL walker.")
+    """Walk open HIL issues.
+
+    Two plugin-driven operations:
+    - `--emit-questions` prints JSON for the slash command to consume.
+    - `--apply-fix HIL-XXX --fix "<text>"` patches the affected artifact
+      and marks the issue resolved.
+    """
+    from designdoc import resolve as _resolve
+    from designdoc.stages.s8_finalize import HIL_FILENAME
+
+    repo_path = _resolve_repo(repo)
+    out = _resolve_output(repo_path, output)
+    hil_yaml = out / HIL_FILENAME
+
+    if emit_questions and apply_fix:
+        typer.echo("--emit-questions and --apply-fix are mutually exclusive", err=True)
+        raise typer.Exit(code=2)
+
+    if emit_questions:
+        typer.echo(_resolve.to_json(_resolve.emit_questions(hil_yaml, out)))
+        return
+
+    if apply_fix:
+        if not fix:
+            typer.echo("--fix <text> is required with --apply-fix", err=True)
+            raise typer.Exit(code=2)
+        result = _resolve.apply_fix(hil_yaml, out, hil_id=apply_fix, fix_text=fix)
+        typer.echo(_resolve.to_json(result))
+        if not result.get("applied"):
+            raise typer.Exit(code=5)
+        return
+
+    typer.echo(
+        "resolve requires --emit-questions or --apply-fix. "
+        "Use the /designdoc resolve plugin for interactive walking."
+    )
     raise typer.Exit(code=2)
