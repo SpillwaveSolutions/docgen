@@ -20,7 +20,8 @@ Then in any Claude Code session:
 ## Prerequisites
 
 - `designdoc` on PATH (`uv tool install .` or `pip install .` from the repo root).
-- `ANTHROPIC_API_KEY` in the environment for LLM stages.
+- `claude` CLI logged in to a Pro/Max subscription — the SDK uses this CLI
+  as its transport. No `ANTHROPIC_API_KEY` needed.
 - `npx` + Node for Stage 5 mermaid validation, or use `--skip mermaid`.
 
 ## What each command does

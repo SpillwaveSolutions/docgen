@@ -36,7 +36,8 @@ See `CLAUDE.md` / `AGENT.md` for the full invariants.
 - [uv](https://github.com/astral-sh/uv) for env management
 - [Task](https://taskfile.dev/) for running commands
 - `@mermaid-js/mermaid-cli` via `npx` (auto-fetched at Stage 5 preflight)
-- `ANTHROPIC_API_KEY` for e2e / dogfood runs
+- `claude` CLI (Claude Code) logged in to a Pro/Max subscription — used by
+  the e2e / dogfood runs. No `ANTHROPIC_API_KEY` required.
 
 ### Commands
 
