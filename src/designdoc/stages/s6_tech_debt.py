@@ -6,6 +6,12 @@ Perplexity + Context7 MCP access), and emits TECH_DEBT.md with one row per dep.
 v1.1 incremental: hash the stable (name, pinned, source) triple set of
 parsed deps. Skip the whole stage if state.rollup_hashes["tech_debt"]
 matches AND TECH_DEBT.md is still on disk.
+
+v1.2 within-stage checkpoint: after each dep is researched, persist
+artifact_index["dep:<name>"] with the per-dep input_hash and serialised row.
+On resume, any dep whose entry matches is skipped (zero LLM calls). The
+partial TECH_DEBT.md is rewritten atomically after every completed dep so a
+mid-stage crash leaves a consistent (partial) ledger on disk.
 """
 
 from __future__ import annotations
@@ -21,8 +27,9 @@ from designdoc.agents.tech_debt import (
     make_tech_debt_researcher,
 )
 from designdoc.index.manifests import Dep, parse_manifests
+from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "tech_debt"
 OUTPUT_FILENAME = "TECH_DEBT.md"
@@ -46,7 +53,7 @@ async def run(
     input_hash = _hash_deps(deps)
     output_path = state.output_dir / OUTPUT_FILENAME
 
-    # Skip when deps unchanged AND the ledger is still on disk.
+    # v1.1 cross-run skip: whole-stage skip when dep manifest is unchanged.
     if state.rollup_hashes.get(ROLLUP_KEY) == input_hash and output_path.exists():
         state.stages[STAGE_NAME] = StageStatus.DONE
         state.current_stage = max(state.current_stage, 7)
@@ -58,7 +65,33 @@ async def run(
 
     sem = asyncio.Semaphore(max(1, parallelism))
 
-    async def _one(dep):
+    # Pre-populate rows from any artifact_index entries written by a prior
+    # (possibly crashed) run of this stage.  Key = dep name; value = row dict.
+    # The skip gate requires both a matching input_hash AND the output file
+    # to exist — if TECH_DEBT.md was deleted the checkpoint is stale.
+    rows: dict[str, dict] = {}
+    for dep in deps:
+        dep_input_hash = _hash_dep(dep)
+        artifact_id = f"dep:{dep.name}"
+        prior = state.artifact_index.get(artifact_id, {})
+        if (
+            prior.get("input_hash") == dep_input_hash
+            and dep_input_hash != ""
+            and output_path.exists()
+        ):
+            stored_row = prior.get("row")
+            if stored_row:
+                try:
+                    rows[dep.name] = json.loads(stored_row)
+                    continue
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        # Not yet checkpointed — will be processed below.
+
+    to_process = [dep for dep in deps if dep.name not in rows]
+
+    async def _one(dep: Dep) -> None:
+        dep_input_hash = _hash_dep(dep)
         async with sem:
             doer_prompt = build_researcher_prompt(dep.name, dep.pinned)
 
@@ -75,16 +108,33 @@ async def run(
                 hil_sink=state.hil_issues,
                 stage_name=STAGE_NAME,
             )
-            return _parse_report(result.text, dep, disputed=result.status != "pass")
+            row = _parse_report(result.text, dep, disputed=result.status != "pass")
 
-    rows: list[dict] = list(await asyncio.gather(*[_one(dep) for dep in deps]))
+        async with state_lock:
+            rows[dep.name] = row
+            # Rewrite partial ledger atomically so a crash leaves a consistent file.
+            ordered_rows = [rows[d.name] for d in deps if d.name in rows]
+            atomic_write(output_path, _render_markdown(ordered_rows))
+            # v1.2 within-stage checkpoint: persist per-dep entry with row data.
+            state.artifact_index[f"dep:{dep.name}"] = {
+                "path": OUTPUT_FILENAME,
+                "input_hash": dep_input_hash,
+                "row": json.dumps(row),
+            }
+            state.save()
 
-    output_path.write_text(_render_markdown(rows))
-    state.rollup_hashes[ROLLUP_KEY] = input_hash
-    state.stages[STAGE_NAME] = StageStatus.DONE
-    state.current_stage = max(state.current_stage, 7)
-    state.save()
-    return rows
+    await asyncio.gather(*[_one(dep) for dep in to_process])
+
+    # Final atomic write with all deps in manifest order.
+    final_rows = [rows[dep.name] for dep in deps if dep.name in rows]
+    async with state_lock:
+        atomic_write(output_path, _render_markdown(final_rows))
+        # v1.1 cross-run skip coexists with v1.2 within-stage checkpoint.
+        state.rollup_hashes[ROLLUP_KEY] = input_hash
+        state.stages[STAGE_NAME] = StageStatus.DONE
+        state.current_stage = max(state.current_stage, 7)
+        state.save()
+    return final_rows
 
 
 def _hash_deps(deps: list[Dep]) -> str:
@@ -97,6 +147,18 @@ def _hash_deps(deps: list[Dep]) -> str:
         h.update(b"\0")
         h.update(dep.source.encode("utf-8"))
         h.update(b"\n")
+    return h.hexdigest()
+
+
+def _hash_dep(dep: Dep) -> str:
+    """SHA1 of a single dep's (name, pinned, source) triple."""
+    h = hashlib.sha1()
+    h.update(dep.name.encode("utf-8"))
+    h.update(b"\0")
+    h.update(dep.pinned.encode("utf-8"))
+    h.update(b"\0")
+    h.update(dep.source.encode("utf-8"))
+    h.update(b"\n")
     return h.hexdigest()
 
 
