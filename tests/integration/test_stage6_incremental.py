@@ -86,8 +86,9 @@ async def test_added_dep_regenerates(tmp_path: Path):
     _seed_pyproject(tmp_path, ["requests>=2.31", "pydantic>=2.7"])
     fake = CountingFakeSDK()
     await _run_stage6(state, fake)
-    # Regeneration covers ALL deps — researcher + crossref per dep = 4 calls.
-    assert len(fake.calls) == 4, f"expected 4 calls for 2 deps, got {len(fake.calls)}"
+    # v1.2: requests is already checkpointed (unchanged), so only pydantic is
+    # researched — researcher + crossref = 2 calls for the new dep only.
+    assert len(fake.calls) == 2, f"expected 2 calls for new dep only, got {len(fake.calls)}"
 
 
 @pytest.mark.anyio
@@ -100,7 +101,11 @@ async def test_removed_dep_regenerates(tmp_path: Path):
     _seed_pyproject(tmp_path, ["requests>=2.31"])
     fake = CountingFakeSDK()
     await _run_stage6(state, fake)
-    assert len(fake.calls) == 2, "removed dep -> regenerate with remaining"
+    # v1.2: requests is already checkpointed and unchanged — zero LLM calls.
+    # The final TECH_DEBT.md is rewritten with only the remaining dep.
+    assert len(fake.calls) == 0, (
+        f"remaining unchanged dep should be skipped, got {len(fake.calls)} calls"
+    )
 
 
 @pytest.mark.anyio
