@@ -7,6 +7,7 @@ crashed run picks-up-where-it-stopped.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -31,15 +32,17 @@ class PipelineState:
     stages: dict[str, StageStatus] = field(default_factory=dict)
     total_retries: int = 0
     hil_issues: list[dict] = field(default_factory=list)
-    artifact_index: dict[str, str] = field(default_factory=dict)
+    # v1.2: each artifact_index entry carries the output path AND the SHA1
+    # of its inputs. On resume, an artifact is skipped only if the current
+    # input_hash matches the recorded one AND the output file exists.
+    artifact_index: dict[str, dict[str, str]] = field(default_factory=dict)
     # prev_hashes: SHA1 map from the last SUCCESSFUL run (seeded by Stage 8).
     # Incremental stages compare current Stage-0 hashes against this to
     # decide which source files need re-analysis.
     prev_hashes: dict[str, str] = field(default_factory=dict)
     # rollup_hashes: per-artifact SHA1 of a stage's INPUTS, keyed by
-    # artifact_id (e.g. "package:payments", "mermaid:StripeGateway",
-    # "system:rollup"). Lets rollup stages detect when their upstream
-    # hasn't changed since the last successful regeneration.
+    # artifact_id. Legacy v1.1 structure retained for cross-run skip logic
+    # outside of artifact_index (e.g. stage7 system rollup).
     rollup_hashes: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -55,12 +58,7 @@ class PipelineState:
         self.state_path.write_text(json.dumps(data, indent=2))
 
     def unchanged_paths(self, current_hashes: dict[str, str]) -> set[str]:
-        """Return relative paths whose current hash matches prev_hashes.
-
-        A path not in prev_hashes is NEVER unchanged (first run or newly
-        added file). A path in prev_hashes but absent from current_hashes is
-        treated as deleted — also not unchanged.
-        """
+        """Return relative paths whose current hash matches prev_hashes."""
         return {
             path
             for path, current_hash in current_hashes.items()
@@ -79,8 +77,27 @@ class PipelineState:
                 stages={k: StageStatus(v) for k, v in d["stages"].items()},
                 total_retries=d["total_retries"],
                 hil_issues=d["hil_issues"],
-                artifact_index=d["artifact_index"],
+                artifact_index=_migrate_artifact_index(d.get("artifact_index", {})),
                 prev_hashes=d.get("prev_hashes", {}),
                 rollup_hashes=d.get("rollup_hashes", {}),
             )
         return cls(target_repo=target_repo, output_dir=output_dir)
+
+
+def _migrate_artifact_index(raw: dict) -> dict[str, dict[str, str]]:
+    """v1.1 stored values as strings; v1.2 stores dicts with path+input_hash.
+
+    Empty input_hash never matches a real SHA1 -> stage reprocesses, which
+    is the same as old behavior. Safe migration, no data loss."""
+    migrated: dict[str, dict[str, str]] = {}
+    for key, value in raw.items():
+        if isinstance(value, str):
+            migrated[key] = {"path": value, "input_hash": ""}
+        else:
+            migrated[key] = dict(value)
+    return migrated
+
+
+# Module-level lock so concurrent asyncio gather-children serialize their
+# JSON rewrites (not their LLM calls). Acquired ONLY around save().
+state_lock = asyncio.Lock()
