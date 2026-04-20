@@ -23,8 +23,9 @@ from designdoc.agents.package_documenter import (
     make_package_documenter,
 )
 from designdoc.hil import inline_comment
+from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "package_rollups"
 
@@ -67,6 +68,15 @@ async def run(
     sem = asyncio.Semaphore(max(1, parallelism))
 
     async def _one(pkg_name, class_docs, input_hash, readme_path):
+        rollup_key = f"package:{pkg_name}"
+
+        # v1.2 within-stage skip: if artifact_index already records this
+        # package with the same input_hash and the README exists, skip.
+        prior = state.artifact_index.get(rollup_key, {})
+        if prior.get("input_hash") == input_hash and input_hash != "" and readme_path.exists():
+            rel = str(readme_path.relative_to(state.output_dir))
+            return pkg_name, rel, input_hash
+
         async with sem:
             doer_prompt = build_doer_prompt(pkg_name, class_docs)
 
@@ -74,7 +84,7 @@ async def run(
                 return build_checker_prompt(_pkg, _docs, readme)
 
             result = await doer_checker_loop(
-                artifact_id=f"package:{pkg_name}",
+                artifact_id=rollup_key,
                 doer=doer,
                 checker=checker,
                 doer_prompt=doer_prompt,
@@ -87,14 +97,25 @@ async def run(
             if result.status == "shipped_with_hil":
                 hil_id = state.hil_issues[-1]["id"]
                 content = f"{inline_comment(hil_id, 'package rollup disputed')}\n\n" + content
-            readme_path.write_text(content)
-            return pkg_name, str(readme_path.relative_to(state.output_dir)), input_hash
+            readme_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(readme_path, content)
+            rel = str(readme_path.relative_to(state.output_dir))
 
-    for pkg_name, rel_path, input_hash in await asyncio.gather(
+        async with state_lock:
+            state.artifact_index[rollup_key] = {
+                "path": rel,
+                "input_hash": input_hash,
+            }
+            # v1.1 cross-run skip coexists with v1.2 within-stage skip
+            state.rollup_hashes[rollup_key] = input_hash
+            state.save()
+
+        return pkg_name, rel, input_hash
+
+    for pkg_name, rel_path, _input_hash in await asyncio.gather(
         *[_one(*args) for args in to_process]
     ):
         written[pkg_name] = rel_path
-        state.rollup_hashes[f"package:{pkg_name}"] = input_hash
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 5)
