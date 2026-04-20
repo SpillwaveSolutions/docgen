@@ -26,7 +26,10 @@ def test_roundtrip_preserves_all_fields(tmp_path: Path):
     s.current_stage = 1
     s.total_retries = 4
     s.hil_issues.append({"id": "HIL-001", "severity": "major"})
-    s.artifact_index["pkg.ClassA"] = "packages/pkg/classes/ClassA.md"
+    s.artifact_index["pkg.ClassA"] = {
+        "path": "packages/pkg/classes/ClassA.md",
+        "input_hash": "deadbeef",
+    }
     s.save()
 
     s2 = PipelineState.load_or_new(output_dir=tmp_path, target_repo=Path("/x"))
@@ -35,7 +38,12 @@ def test_roundtrip_preserves_all_fields(tmp_path: Path):
     assert s2.current_stage == 1
     assert s2.total_retries == 4
     assert s2.hil_issues == [{"id": "HIL-001", "severity": "major"}]
-    assert s2.artifact_index == {"pkg.ClassA": "packages/pkg/classes/ClassA.md"}
+    assert s2.artifact_index == {
+        "pkg.ClassA": {
+            "path": "packages/pkg/classes/ClassA.md",
+            "input_hash": "deadbeef",
+        }
+    }
 
 
 def test_save_creates_output_dir_if_missing(tmp_path: Path):
