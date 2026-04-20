@@ -50,12 +50,14 @@ class PipelineState:
         return self.output_dir / STATE_FILENAME
 
     def save(self) -> None:
+        from designdoc.io_utils import atomic_write
+
         self.output_dir.mkdir(parents=True, exist_ok=True)
         data = asdict(self)
         data["target_repo"] = str(self.target_repo)
         data["output_dir"] = str(self.output_dir)
         data["stages"] = {k: str(v) for k, v in self.stages.items()}
-        self.state_path.write_text(json.dumps(data, indent=2))
+        atomic_write(self.state_path, json.dumps(data, indent=2))
 
     def unchanged_paths(self, current_hashes: dict[str, str]) -> set[str]:
         """Return relative paths whose current hash matches prev_hashes."""
