@@ -2,8 +2,10 @@
 
 Rules:
 - Stages marked DONE are skipped (resume).
-- BudgetExceededError exits cleanly — state is saved with the current stage
-  marked FAILED so subsequent `designdoc status` shows where we halted.
+- BudgetExceededError is caught and turned into state: stage is marked FAILED,
+  state.halted_on_budget is set, state+budget are persisted, and run() returns
+  cleanly (does NOT re-raise). The CLI reads the flag to print a resume hint
+  and exits 0 (the pipeline is resumable; it's not a crash).
 - Stage 5 preflight runs mmdc before the pipeline starts; if mmdc is missing
   and Stage 5 is not skipped, halt with a clear error.
 """
@@ -116,16 +118,18 @@ class Orchestrator:
                 self.budget.save()
             except BudgetExceededError:
                 self.state.stages[entry.name] = StageStatus.FAILED
+                self.state.halted_on_budget = True
                 self.state.save()
                 self.budget.save()
                 log.info(
-                    "[%d/%d] stage %s FAILED after %.1fs (budget exceeded)",
+                    "[%d/%d] stage %s halted after %.1fs (budget exceeded) — "
+                    "run `designdoc resume --budget <new-cap>` to continue",
                     idx,
                     total,
                     entry.name,
                     time.monotonic() - start,
                 )
-                raise
+                return
             log.info(
                 "[%d/%d] stage %s done in %.1fs",
                 idx,

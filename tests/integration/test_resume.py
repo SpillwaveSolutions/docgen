@@ -142,21 +142,21 @@ async def test_resume_skips_completed_stages(tmp_path: Path):
 async def test_budget_exceeded_halts_pipeline(tmp_path: Path):
     """Set cap to $0 and verify the first LLM-using stage halts cleanly.
 
-    The stage that fails must be marked FAILED in state, budget must persist,
-    and subsequent stages must NOT have run.
+    v1.2 behavior: orchestrator returns (does not raise). state.halted_on_budget
+    is True, the stage is marked FAILED, budget is persisted, and later stages
+    have not run.
     """
     output = tmp_path / "design"
     state = PipelineState.load_or_new(output_dir=output, target_repo=TINY_REPO)
     budget = CostAccumulator(cap_usd=0.0001, path=output / ".designdoc-budget.json")
     runner = ClaudeSDKRunner(budget=budget, sdk=_RecordingSDK())
 
-    from designdoc.budget import BudgetExceededError
-
     # Skip mmdc preflight for this test — we're testing budget halt, not mmdc
     orchestrator = Orchestrator(state=state, runner=runner, budget=budget, skip_stages={"mermaid"})
-    with pytest.raises(BudgetExceededError):
-        await orchestrator.run()
+    # No raise: orchestrator halts gracefully and persists halt flag.
+    await orchestrator.run()
 
+    assert state.halted_on_budget is True
     # Stages 0 and 1 are LLM-free and should still complete
     assert state.stages["discover"] == StageStatus.DONE
     assert state.stages["index"] == StageStatus.DONE

@@ -44,6 +44,10 @@ class PipelineState:
     # artifact_id. Legacy v1.1 structure retained for cross-run skip logic
     # outside of artifact_index (e.g. stage7 system rollup).
     rollup_hashes: dict[str, str] = field(default_factory=dict)
+    # Set True when orchestrator exits cleanly because a stage raised
+    # BudgetExceededError. CLI checks this flag to print the resume message
+    # and exit 0. Cleared on successful rerun with a new --budget value.
+    halted_on_budget: bool = False
 
     @property
     def state_path(self) -> Path:
@@ -82,6 +86,7 @@ class PipelineState:
                 artifact_index=_migrate_artifact_index(d.get("artifact_index", {})),
                 prev_hashes=d.get("prev_hashes", {}),
                 rollup_hashes=d.get("rollup_hashes", {}),
+                halted_on_budget=d.get("halted_on_budget", False),
             )
         return cls(target_repo=target_repo, output_dir=output_dir)
 

@@ -9,6 +9,7 @@ Four subcommands:
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Annotated
@@ -16,7 +17,7 @@ from typing import Annotated
 import anyio
 import typer
 
-from designdoc.budget import BUDGET_FILENAME, BudgetExceededError, CostAccumulator
+from designdoc.budget import BUDGET_FILENAME, CostAccumulator
 from designdoc.config import load_config
 from designdoc.mermaid.mmdc import MmdcNotAvailableError
 from designdoc.orchestrator import Orchestrator
@@ -96,6 +97,11 @@ async def _run_orchestrator(
     # Precedence: explicit --budget wins; otherwise config value wins.
     cap_usd = budget_usd if budget_usd is not None else config.max_budget_usd
     state = PipelineState.load_or_new(output_dir=output, target_repo=repo)
+    # Budget overrides reset the halt flag so a successful rerun clears it.
+    # Without this, a previously-halted run would keep reporting halt even
+    # after the user raised the cap and completed the pipeline.
+    if budget_usd is not None:
+        state.halted_on_budget = False
     budget = CostAccumulator.load_or_new(cap_usd=cap_usd, path=output / BUDGET_FILENAME)
     runner = ClaudeSDKRunner(budget=budget)
     orchestrator = Orchestrator(
@@ -152,10 +158,24 @@ def generate(
         typer.echo(f"mmdc preflight failed: {e}", err=True)
         typer.echo("Use --skip mermaid to proceed without mermaid diagrams.", err=True)
         raise typer.Exit(code=3) from e
-    except BudgetExceededError as e:
-        typer.echo(f"budget exceeded: {e}", err=True)
-        typer.echo("Run `designdoc status` to see the last completed stage.", err=True)
-        raise typer.Exit(code=4) from e
+
+    # Graceful budget halt: orchestrator returned cleanly, state carries the
+    # halt flag. Reload state from disk (fresh process semantics) so the
+    # check works identically on a resume invocation.
+    config_obj = load_config(config) if config else load_config(None)
+    output_dir = _resolve_output(repo_p, output, config_obj.output_dir)
+    state = PipelineState.load_or_new(output_dir=output_dir, target_repo=repo_p)
+    if state.halted_on_budget:
+        budget_path = output_dir / BUDGET_FILENAME
+        spent = "$0.00"
+        cap = "$?.??"
+        if budget_path.exists():
+            data = json.loads(budget_path.read_text())
+            spent = f"${data['total_cost_usd']:.2f}"
+            cap = f"${data['cap_usd']:.2f}"
+        typer.echo(f"budget exhausted at {spent} / cap {cap}.", err=True)
+        typer.echo("Run `designdoc resume --budget <new-cap>` to continue.", err=True)
+        raise typer.Exit(code=0)
 
 
 @app.command()
@@ -207,8 +227,6 @@ def status(
 
     budget_path = out / BUDGET_FILENAME
     if budget_path.exists():
-        import json
-
         data = json.loads(budget_path.read_text())
         typer.echo(
             f"cost: ${data['total_cost_usd']:.4f} / cap ${data['cap_usd']:.2f} "
