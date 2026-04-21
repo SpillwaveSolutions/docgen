@@ -4,6 +4,47 @@ All notable changes to **designdoc** are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-04-21
+
+Within-stage crash-resume. A pipeline killed mid-Stage-N no longer loses
+that stage's partial progress — the rerun skips any artifact whose
+input hash still matches the checkpoint. Budget-cap halts are now
+graceful exits with a resume-message format.
+
+### Added
+
+- **Within-stage checkpointing.** Stages 2 (file summaries), 3 (class
+  docs), 4 (package rollups), 5 (mermaid), and 6 (tech-debt topics) now
+  write to `state.artifact_index` after every completed artifact, under
+  an `asyncio.Lock`. Mid-stage crash + rerun never re-calls the LLM for
+  already-produced artifacts.
+- **Atomic artifact writes.** New `designdoc.io_utils.atomic_write(path,
+  content)` writes to a sibling `.tmp` then `os.replace()` (POSIX-atomic).
+  Every artifact and the `.designdoc-state.json` file itself use it.
+- **Graceful budget halt.** `BudgetExceededError` mid-stage now sets
+  `state.halted_on_budget=True`, marks the stage FAILED, saves state, and
+  the CLI prints `budget exhausted at $X / cap $Y. Run` `designdoc resume
+  --budget <new-cap>` `to continue` with exit 0.
+- **Observability.** Orchestrator stage-start log lines include the
+  count of already-checkpointed artifacts (e.g., `[3/9] stage class_docs:
+  40 artifacts checkpointed`).
+
+### Changed
+
+- `PipelineState.artifact_index` is now `dict[str, dict[str, str]]`
+  (was `dict[str, str]`) carrying `{"path": ..., "input_hash": ...}`
+  per artifact. Old-shape state files are migrated in-memory on load
+  with empty `input_hash` — safe fallback that forces reprocessing.
+- `Orchestrator.run()` no longer re-raises `BudgetExceededError`. The
+  CLI reads `state.halted_on_budget` after the run and formats the
+  resume message itself. Exit code 0 (resumable), not 4 (crash).
+
+### Fixed
+
+- Concurrent `state.save()` under `asyncio.gather` is now serialized by
+  a module-level `asyncio.Lock`, preventing lost writes when
+  `parallelism > 1`.
+
 ## [1.1.0] - 2026-04-17
 
 Incremental regeneration, parallel execution, and UX polish. Measured on
@@ -116,5 +157,6 @@ documentation pipeline described in `plans/2026_04_16_designdoc_gen_v1.md`.
 - `mmdc` preflight probe at orchestrator start; pipeline halts with a clear
   error if the Mermaid CLI is absent.
 
+[1.2.0]: https://github.com/SpillwaveSolutions/docgen/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/SpillwaveSolutions/docgen/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/SpillwaveSolutions/docgen/releases/tag/v1.0.0
