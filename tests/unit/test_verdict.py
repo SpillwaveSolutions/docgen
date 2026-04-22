@@ -113,6 +113,66 @@ def test_parse_never_raises_on_any_input():
         assert v.status == "fail"
 
 
+# INV-001 regression guards: checker LLMs reliably wrap JSON in markdown code
+# fences despite "Return only the JSON, no prose, no code fences" prompts.
+# parse_verdict must handle this defensively so pass verdicts wrapped in fences
+# are not miscategorized as parse failures.
+
+
+def test_parse_strips_json_code_fence():
+    """```json\\n{...}\\n``` — the exact pattern observed in 9/9 failing captures
+    during INV-001 diagnostic dogfood run against tiny_repo."""
+    raw = '```json\n{"status":"pass","summary":"ok"}\n```'
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "pass"
+    assert v.summary == "ok"
+
+
+def test_parse_strips_bare_code_fence():
+    """```\\n{...}\\n``` without explicit json language marker."""
+    raw = '```\n{"status":"pass","summary":"ok"}\n```'
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "pass"
+
+
+def test_parse_strips_fence_with_surrounding_whitespace():
+    """LLMs often add leading/trailing whitespace around the fence."""
+    raw = '  \n```json\n{"status":"pass"}\n```\n\n'
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "pass"
+
+
+def test_parse_fence_wrapped_fail_verdict():
+    """Fence-stripping must preserve genuine fail verdicts — we must not turn
+    a fenced fail into a synthetic fail (that would lose the real issues)."""
+    raw = (
+        '```json\n{"status":"fail","issues":[{"severity":"major","location":"x",'
+        '"current_text":"c","suggested_fix":"f"}]}\n```'
+    )
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "fail"
+    assert len(v.issues) == 1
+    assert v.issues[0].severity == "major"
+    assert v.issues[0].suggested_fix == "f"
+
+
+def test_parse_clean_json_unaffected_by_fence_strip():
+    """Regression: unwrapped JSON must still parse identically to before."""
+    raw = '{"status":"pass","summary":"ok"}'
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "pass"
+    assert v.summary == "ok"
+
+
+def test_parse_genuinely_malformed_inside_fence_still_fails():
+    """Fence-strip is a wrapper-repair, not a JSON repair. Broken JSON inside
+    a fence must still route to the synthetic-fail path (fail loud)."""
+    raw = "```json\n{broken not valid\n```"
+    v = parse_verdict(raw, attempt=1, artifact_id="x")
+    assert v.status == "fail"
+    assert any(i.severity == "critical" for i in v.issues)
+
+
 def test_mermaid_issue_category():
     m = MermaidIssue(
         severity="major",

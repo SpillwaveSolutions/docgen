@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:payments",
+  "stage": "package_rollups",
+  "attempt": 2,
+  "timestamp": 1776819315.83869,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately summarises both class docs in structure, semantics, and key behavioural details. No critical or major inaccuracies were found. One minor overstatement in the Overview is noted below.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Overview\",\n      \"current_text\": \"encapsulating all gateway-specific concerns (credentials, retry policy, and the upstream Stripe URL) behind a clean interface\",\n      \"suggested_fix\": \"The class docs describe the Stripe URL only as an inline comment inside `charge()` ('names https://api.stripe.com as the intended upstream') and note that no HTTP client library is imported. Listing it as an actively encapsulated concern overstates what the class docs support. Revise to: 'encapsulating all gateway-specific concerns (credentials, retry policy, and the intended Stripe upstream) behind a clean interface' or drop 'the upstream Stripe URL' entirely.\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 985,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

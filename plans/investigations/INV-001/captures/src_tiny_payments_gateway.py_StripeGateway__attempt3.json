@@ -1,0 +1,11 @@
+{
+  "artifact_id": "src/tiny/payments/gateway.py::StripeGateway",
+  "stage": "class_docs",
+  "attempt": 3,
+  "timestamp": 1776819209.968118,
+  "raw_output": "{\"status\":\"pass\",\"summary\":\"All method signatures, return types, behavioral claims, dependency references, and line-level details in the generated doc are fully traceable to the source. No hallucinations detected.\",\"issues\":[]}",
+  "raw_output_length": 227,
+  "parse_status": "pass",
+  "parse_exception": null,
+  "parse_summary": "All method signatures, return types, behavioral claims, dependency references, and line-level details in the generated doc are fully traceable to the source. No hallucinations detected."
+}

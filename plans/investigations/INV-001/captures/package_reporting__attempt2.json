@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:reporting",
+  "stage": "package_rollups",
+  "attempt": 2,
+  "timestamp": 1776819262.214834,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately reflects the class docs with no critical or major inaccuracies. Minor omission of the exact summary string format and empty-list behavior documentation.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Classes\",\n      \"current_text\": \"exposes a cent-precision integer total and a formatted one-line summary string\",\n      \"suggested_fix\": \"Mention the exact format of the summary string: 'N charges totalling X.XX' (no currency symbol), to give consumers enough information to rely on the contract without consulting the class doc.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Internal structure\",\n      \"current_text\": \"Construction stores a defensive copy of the incoming list, so Report is fully self-contained after instantiation\",\n      \"suggested_fix\": \"Add a note that an empty list is explicitly valid and produces total_cents() == 0 and summary() == '0 charges totalling 0.00' without raising, since that is a documented behavioral guarantee in the class doc.\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 1085,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

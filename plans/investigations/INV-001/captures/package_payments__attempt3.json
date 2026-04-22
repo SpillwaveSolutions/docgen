@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:payments",
+  "stage": "package_rollups",
+  "attempt": 3,
+  "timestamp": 1776819338.174737,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately and faithfully summarizes both class docs. All key facts \u2014 field names, types, defaults, method signatures, stub behavior, the closed-loop fake invariant, the unidirectional dependency, and the immutable-by-convention caveat \u2014 are correctly represented. No claims are made that contradict or materially omit load-bearing content from the class docs.\",\n  \"issues\": []\n}\n```",
+  "raw_output_length": 438,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

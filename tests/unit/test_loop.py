@@ -9,6 +9,8 @@ reliability claim collapses. Specifically:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from designdoc.loop import doer_checker_loop
@@ -155,6 +157,177 @@ async def test_malformed_checker_output_counts_as_attempt():
     assert result.status == "shipped_with_hil"
     assert len(hil_sink) == 1
     assert len(runner.calls) == 6
+
+
+@pytest.mark.anyio
+async def test_debug_capture_written_on_parse_failure(tmp_path):
+    """When debug_dir is set, raw checker output is persisted for every attempt,
+    including synthetic-fail attempts. Proves INV-001 diagnostic works."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": ["not valid json", "```json\n{broken}\n```", "still broken"],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+    debug_dir = tmp_path / "captures"
+
+    await doer_checker_loop(
+        artifact_id="pkg/mod.py::MyClass",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+        stage_name="class_docs",
+        debug_dir=debug_dir,
+    )
+
+    files = sorted(debug_dir.glob("*.json"))
+    assert len(files) == 3, f"expected 3 captures, got {[f.name for f in files]}"
+
+    first = json.loads(files[0].read_text())
+    assert first["artifact_id"] == "pkg/mod.py::MyClass"
+    assert first["stage"] == "class_docs"
+    assert first["attempt"] == 1
+    assert first["raw_output"] == "not valid json"
+    assert first["raw_output_length"] == len("not valid json")
+    assert first["parse_status"] == "fail"
+    assert first["parse_exception"] == "JSONDecodeError"
+
+    # Filename must be filesystem-safe — no "/" or "::" verbatim
+    for f in files:
+        assert "/" not in f.name
+        assert "::" not in f.name
+
+    # Second capture preserved its code-fence wrapper verbatim — the diagnostic's
+    # whole purpose is to show *what* the checker emitted, not a cleaned version.
+    second = json.loads(files[1].read_text())
+    assert second["raw_output"] == "```json\n{broken}\n```"
+
+
+@pytest.mark.anyio
+async def test_debug_capture_written_on_pass(tmp_path):
+    """Success captures are also written — lets us compare passing vs failing output format."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1"],
+            "checker": ['{"status":"pass","summary":"ok"}'],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+    debug_dir = tmp_path / "captures"
+
+    await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+        debug_dir=debug_dir,
+    )
+
+    files = list(debug_dir.glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text())
+    assert data["parse_status"] == "pass"
+    assert data["parse_exception"] is None
+
+
+@pytest.mark.anyio
+async def test_no_debug_capture_when_debug_dir_none(tmp_path, monkeypatch):
+    """Default behavior — nothing written to disk when debug_dir is None
+    AND env var is unset. The opt-in contract must stay opt-in."""
+    monkeypatch.delenv("DESIGNDOC_DEBUG_DIR", raising=False)
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1"],
+            "checker": ['{"status":"pass","summary":"ok"}'],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+
+    await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+    )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.anyio
+async def test_debug_capture_honors_env_var(tmp_path, monkeypatch):
+    """DESIGNDOC_DEBUG_DIR env var enables capture without any call-site changes.
+    This is how real pipeline stages activate the diagnostic."""
+    env_dir = tmp_path / "env_captures"
+    monkeypatch.setenv("DESIGNDOC_DEBUG_DIR", str(env_dir))
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": ["not json", "also not json", "still not json"],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+
+    # No debug_dir passed — env var should take over
+    await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+        stage_name="test",
+    )
+
+    files = sorted(env_dir.glob("*.json"))
+    assert len(files) == 3, "env var should trigger capture on every attempt"
+    data = json.loads(files[0].read_text())
+    assert data["parse_exception"] == "JSONDecodeError"
+
+
+@pytest.mark.anyio
+async def test_explicit_debug_dir_overrides_env_var(tmp_path, monkeypatch):
+    """Explicit debug_dir parameter wins over env var. Preserves testability
+    — a test passing tmp_path shouldn't be affected by ambient env."""
+    env_dir = tmp_path / "env_should_not_receive"
+    explicit_dir = tmp_path / "explicit"
+    monkeypatch.setenv("DESIGNDOC_DEBUG_DIR", str(env_dir))
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1"],
+            "checker": ['{"status":"pass","summary":"ok"}'],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+
+    await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+        debug_dir=explicit_dir,
+    )
+
+    assert list(explicit_dir.glob("*.json")), "explicit dir received the capture"
+    assert not env_dir.exists(), "env dir was untouched"
 
 
 @pytest.mark.anyio

@@ -1,0 +1,11 @@
+{
+  "artifact_id": "src/tiny/payments/gateway.py::StripeGateway",
+  "stage": "class_docs",
+  "attempt": 2,
+  "timestamp": 1776819167.398119,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"All method signatures, return types, field definitions, dependencies, and behavioral claims are accurately traceable to the source. One minor attribution inaccuracy: the retry-backoff specification is placed in the class docstring, not the charge() method docstring, yet the doc's charge() section states 'The docstring specifies that on failure the call may be retried\u2026' without clarifying which docstring.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"doc section: charge() \u2014 sentence beginning 'The docstring specifies that on failure\u2026'\",\n      \"current_text\": \"The docstring specifies that on failure the call may be retried up to `max_retries` times with linear backoff before propagating an error\",\n      \"suggested_fix\": \"Attribute the retry specification to the class docstring, not the method docstring: 'The class docstring specifies that on failure the call may be retried up to `max_retries` times with linear backoff before propagating an error; the `charge()` method docstring itself only says \\\"Submit a charge for the given amount. Returns a Charge on success.\\\"'\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 1162,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}
