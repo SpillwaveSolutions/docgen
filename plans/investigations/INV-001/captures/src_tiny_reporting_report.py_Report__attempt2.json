@@ -1,0 +1,11 @@
+{
+  "artifact_id": "src/tiny/reporting/report.py::Report",
+  "stage": "class_docs",
+  "attempt": 2,
+  "timestamp": 1776819125.640685,
+  "raw_output": "{\"status\": \"pass\", \"summary\": \"All method signatures, behavioral claims, dependencies, and notes are accurately reflected in the source. No hallucinations detected.\", \"issues\": []}",
+  "raw_output_length": 180,
+  "parse_status": "pass",
+  "parse_exception": null,
+  "parse_summary": "All method signatures, behavioral claims, dependencies, and notes are accurately reflected in the source. No hallucinations detected."
+}

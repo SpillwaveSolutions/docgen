@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:payments",
+  "stage": "package_rollups",
+  "attempt": 1,
+  "timestamp": 1776819247.571203,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately summarizes both class docs. All key facts \u2014 constructor signatures, field types, defaults, the stub nature of the implementation, the closed-loop fake behavior, the one-directional dependency, retry policy declared but unimplemented, and the currency default \u2014 are faithfully represented. No material omissions, distortions, or fabrications were found.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Classes \u2014 Charge bullet\",\n      \"current_text\": \"Immutable-by-convention value object returned by a successful StripeGateway.charge() call\",\n      \"suggested_fix\": \"The class doc explicitly notes that Charge is not frozen and its fields are mutable after construction. The README's 'immutable-by-convention' phrasing is accurate but could be strengthened with a parenthetical such as '(fields are mutable at the language level; the codebase treats it as immutable by convention)' to avoid misleading readers who may not read further.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Internal structure\",\n      \"current_text\": \"The two classes share the same module and form a closed-loop fake\",\n      \"suggested_fix\": \"The class doc attributes the closed-loop characterization specifically to the stub implementation (ch_ prefix in charge() guaranteeing True from refund()). The README presents it as a general structural property. Consider qualifying: '\u2026and in the current stub implementation form a closed-loop fake \u2014 every Charge produced by charge() carries an id prefixed with \\\"ch_\\\", which is exactly the condition refund() tests.' This avoids implying the closed-loop is an intended design invariant rather than a stub artifact.\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 1751,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

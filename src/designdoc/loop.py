@@ -15,17 +15,40 @@ Each call:
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
 from designdoc.runner import AgentDef  # noqa: F401 — re-export for callers
-from designdoc.verdict import CheckerIssue, CheckerVerdict, parse_verdict
+from designdoc.verdict import (
+    SYNTH_FAIL_PREFIX,
+    CheckerIssue,
+    CheckerVerdict,
+    parse_verdict,
+)
 
 MAX_ATTEMPTS: int = 3
 """CANONICAL. Enforced here, nowhere else. Do not expose in config."""
+
+DEBUG_DIR_ENV_VAR = "DESIGNDOC_DEBUG_DIR"
+"""Env var that enables INV-001 raw-checker-output capture without any stage
+code changes. Explicit debug_dir parameter wins over the env var."""
+
+
+def _resolve_debug_dir(explicit: Path | None) -> Path | None:
+    """Explicit parameter wins; otherwise fall back to env var; otherwise None."""
+    if explicit is not None:
+        return explicit
+    env = os.environ.get(DEBUG_DIR_ENV_VAR)
+    return Path(env) if env else None
 
 
 ArtifactStatus = Literal["pass", "shipped_with_hil"]
@@ -50,13 +73,24 @@ async def doer_checker_loop(
     runner: Any,
     hil_sink: list[dict],
     stage_name: str = "unknown",
+    debug_dir: Path | None = None,
 ) -> ArtifactResult:
-    """Run the doer/checker bouncer. Ships with HIL after MAX_ATTEMPTS failures."""
+    """Run the doer/checker bouncer. Ships with HIL after MAX_ATTEMPTS failures.
+
+    When debug_dir is set, every checker invocation's raw output + parse status
+    is persisted under debug_dir. Opt-in diagnostic for INV-001.
+    """
+    effective_debug_dir = _resolve_debug_dir(debug_dir)
     current_text = (await runner.run(doer, doer_prompt)).text
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         checker_raw = (await runner.run(checker, checker_prompt_fn(current_text))).text
         verdict = parse_verdict(checker_raw, attempt=attempt, artifact_id=artifact_id)
+
+        if effective_debug_dir is not None:
+            _capture_checker_output(
+                effective_debug_dir, artifact_id, stage_name, attempt, checker_raw, verdict
+            )
 
         if verdict.status == "pass":
             return ArtifactResult(artifact_id, "pass", current_text, attempt, verdict)
@@ -125,6 +159,45 @@ def _build_hil_entry(
         "suggested_fixes": [i.suggested_fix for i in verdict.issues[:3]],
         "status": "open",
     }
+
+
+def _capture_checker_output(
+    debug_dir: Path,
+    artifact_id: str,
+    stage: str,
+    attempt: int,
+    raw: str,
+    verdict: CheckerVerdict,
+) -> None:
+    """Persist raw checker output + parse result to debug_dir. INV-001 diagnostic.
+
+    I/O failures are logged to stderr but do not halt the pipeline — diagnostic
+    instrumentation must not be load-bearing for correctness.
+    """
+    parse_exc: str | None = None
+    if verdict.status == "fail" and verdict.summary.startswith(SYNTH_FAIL_PREFIX):
+        parse_exc = verdict.summary[len(SYNTH_FAIL_PREFIX) :].strip() or None
+
+    payload = {
+        "artifact_id": artifact_id,
+        "stage": stage,
+        "attempt": attempt,
+        "timestamp": time.time(),
+        "raw_output": raw,
+        "raw_output_length": len(raw),
+        "parse_status": verdict.status,
+        "parse_exception": parse_exc,
+        "parse_summary": verdict.summary,
+    }
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", artifact_id)
+    try:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / f"{safe_name}__attempt{attempt}.json").write_text(
+            json.dumps(payload, indent=2)
+        )
+    except OSError as e:
+        print(f"[debug-capture] failed to write {safe_name}: {e}", file=sys.stderr)
 
 
 def _max_severity(v: CheckerVerdict) -> str:

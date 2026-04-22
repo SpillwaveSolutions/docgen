@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:reporting",
+  "stage": "package_rollups",
+  "attempt": 3,
+  "timestamp": 1776819292.481937,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately summarizes all material facts from the class docs. The public API methods (total_cents, summary), the defensive-copy guarantee, integer-only accumulation, the single Charge dependency, and the two named consumers are all faithfully represented. No claims contradict the class docs and no critical details are omitted.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Classes\",\n      \"current_text\": \"Immutable value object\",\n      \"suggested_fix\": \"The class docs describe a defensive copy on construction but never use the word 'immutable' \u2014 the class is not documented as enforcing immutability (e.g., no __slots__, no frozen dataclass, no property-only access). Change to 'value object' or 'snapshot object' to avoid overstating the guarantee.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Overview / Classes (omission)\",\n      \"current_text\": \"(no mention of the summary() format or empty-list behaviour)\",\n      \"suggested_fix\": \"Consider adding one sentence noting the summary() output format ('N charges totalling X.XX', no currency symbol) and that an empty list is valid and returns 0 / '0 charges totalling 0.00'. These are explicitly documented behaviours in the class docs and callers relying on the README alone will not know them.\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 1360,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

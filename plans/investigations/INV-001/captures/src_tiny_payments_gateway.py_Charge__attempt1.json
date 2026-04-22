@@ -1,0 +1,11 @@
+{
+  "artifact_id": "src/tiny/payments/gateway.py::Charge",
+  "stage": "class_docs",
+  "attempt": 1,
+  "timestamp": 1776819076.9817102,
+  "raw_output": "{\"status\": \"pass\", \"summary\": \"All method signatures, field declarations, default values, dependency claims, and behavioral assertions in the documentation are traceable to the source. The `@dataclass` decorator with `from dataclasses import dataclass` matches the stated stdlib dependency. Field names and types (`id: str`, `amount_cents: int`, `currency: str = \\\"USD\\\"`) match exactly. The `id` format claim (`\\\"ch_{amount_cents}\\\"`) is confirmed by line 31. The `StripeGateway.charge()` factory site and `refund(charge_id)` usage pattern are confirmed. No frozen=True is present, consistent with the mutability note. No custom `__eq__` or docstring on `Charge` is present, consistent with those notes.\", \"issues\": []}",
+  "raw_output_length": 720,
+  "parse_status": "pass",
+  "parse_exception": null,
+  "parse_summary": "All method signatures, field declarations, default values, dependency claims, and behavioral assertions in the documentation are traceable to the source. The `@dataclass` decorator with `from dataclasses import dataclass` matches the stated stdlib dependency. Field names and types (`id: str`, `amount_cents: int`, `currency: str = \"USD\"`) match exactly. The `id` format claim (`\"ch_{amount_cents}\"`) is confirmed by line 31. The `StripeGateway.charge()` factory site and `refund(charge_id)` usage pattern are confirmed. No frozen=True is present, consistent with the mutability note. No custom `__eq__` or docstring on `Charge` is present, consistent with those notes."
+}

@@ -1,0 +1,11 @@
+{
+  "artifact_id": "package:reporting",
+  "stage": "package_rollups",
+  "attempt": 1,
+  "timestamp": 1776819240.05159,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"The README accurately reflects the class-level docs with no material omissions or distortions. All key behavioral guarantees, the dependency chain, the defensive-copy contract, and the two named consumers are represented correctly.\",\n  \"issues\": [\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Classes\",\n      \"current_text\": \"Immutable value object that wraps a list of `Charge` records and exposes a cent-precision integer total and a formatted one-line summary string.\",\n      \"suggested_fix\": \"The class doc never uses the word 'Immutable' \u2014 it says 'defensive copy' and 'value object', but does not guarantee immutability (e.g., the stored list is accessible as `self.charges` and could be mutated externally). Change to: 'Value object that wraps a defensive copy of a list of `Charge` records and exposes a cent-precision integer total (`total_cents()`) and a formatted one-line summary string (`summary()`).' to stay faithful to the class doc's language.\"\n    },\n    {\n      \"severity\": \"minor\",\n      \"location\": \"Internal structure\",\n      \"current_text\": \"Nothing inside the `reporting` package depends on `Report` itself \u2014 it is a leaf node consumed by two external callers (the CLI and audit tooling).\",\n      \"suggested_fix\": \"The class doc attributes the two-consumer statement to 'the module docstring', not to the class definition itself. The README should hedge slightly: 'The module docstring identifies two intended external consumers (the CLI and audit tooling).' This keeps the source of the claim accurate.\"\n    }\n  ]\n}\n```",
+  "raw_output_length": 1595,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}

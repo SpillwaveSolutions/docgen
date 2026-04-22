@@ -1,0 +1,11 @@
+{
+  "artifact_id": "src/tiny/reporting/report.py::Report",
+  "stage": "class_docs",
+  "attempt": 1,
+  "timestamp": 1776819081.212924,
+  "raw_output": "```json\n{\n  \"status\": \"pass\",\n  \"summary\": \"All method signatures, behavioral claims, imports, and edge-case notes are fully traceable to the source. No hallucinations detected.\",\n  \"issues\": []\n}\n```",
+  "raw_output_length": 200,
+  "parse_status": "fail",
+  "parse_exception": "JSONDecodeError",
+  "parse_summary": "checker output unparseable: JSONDecodeError"
+}
