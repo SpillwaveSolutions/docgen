@@ -17,7 +17,7 @@ import json
 from designdoc.agents.file_analyzer import FileSummary, build_prompt, make_file_analyzer
 from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_schema_loop
-from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
+from designdoc.stages._common import current_source_hashes
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -44,7 +44,7 @@ async def run(
     signatures = json.loads(stage1_path.read_text())
     doer = make_file_analyzer(model=doer_model)
 
-    current_hashes = _current_source_hashes(state)
+    current_hashes = current_source_hashes(state)
     reusable = _load_reusable_summaries(state, current_hashes)
 
     # Load any partial summaries from a prior (possibly crashed) run, then
@@ -122,17 +122,6 @@ async def run(
         state.current_stage = max(state.current_stage, 3)
         state.save()
     return results
-
-
-def _current_source_hashes(state: PipelineState) -> dict[str, str]:
-    """Load {path: sha} from stage0_discovery.json; empty dict on any failure."""
-    stage0_path = state.output_dir / STAGE0_FILENAME
-    if not stage0_path.exists():
-        return {}
-    try:
-        return json.loads(stage0_path.read_text()).get("hashes") or {}
-    except (json.JSONDecodeError, OSError):
-        return {}
 
 
 def _load_reusable_summaries(

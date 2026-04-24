@@ -33,7 +33,7 @@ from designdoc.agents.doc_quality_checker import (
 from designdoc.hil import inline_comment
 from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
-from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
+from designdoc.stages._common import current_source_hashes
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -63,7 +63,7 @@ async def run(
     doer = make_class_documenter(model=doer_model)
     checker = make_doc_quality_checker(model=checker_model)
 
-    current_source_hashes = _current_source_hashes(state)
+    source_hashes = current_source_hashes(state)
 
     to_process: list[tuple[dict, dict]] = []
     for sig in signatures:
@@ -78,7 +78,7 @@ async def run(
         class_id = f"{sig['path']}::{cls['name']}"
         out_path = _class_doc_path(state.output_dir, sig["path"], cls["name"])
         current_input_hash = _class_input_hash(
-            source_sha=current_source_hashes.get(sig["path"], ""),
+            source_sha=source_hashes.get(sig["path"], ""),
             class_signature=cls,
         )
 
@@ -151,16 +151,6 @@ async def run(
             if entry:
                 written[class_id] = entry["path"]
     return written
-
-
-def _current_source_hashes(state: PipelineState) -> dict[str, str]:
-    stage0_path = state.output_dir / STAGE0_FILENAME
-    if not stage0_path.exists():
-        return {}
-    try:
-        return json.loads(stage0_path.read_text()).get("hashes") or {}
-    except (json.JSONDecodeError, OSError):
-        return {}
 
 
 def _class_input_hash(source_sha: str, class_signature: dict) -> str:
