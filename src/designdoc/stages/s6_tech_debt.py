@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 from designdoc.agents.tech_debt import (
     build_crossref_prompt,
@@ -30,6 +31,8 @@ from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
 from designdoc.stages._common import unwrap_taskgroup_exception
 from designdoc.state import PipelineState, StageStatus, state_lock
+
+log = logging.getLogger(__name__)
 
 STAGE_NAME = "tech_debt"
 OUTPUT_FILENAME = "TECH_DEBT.md"
@@ -160,7 +163,15 @@ async def run(
 def _parse_report(text: str, dep, disputed: bool) -> dict:
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        # Log loud (Invariant 4): the doer returned non-JSON; the row will
+        # be marked "unknown" but the failure isn't silent.
+        log.warning(
+            "_parse_report: JSON decode failed for dep=%s (disputed=%s): %s",
+            dep.name,
+            disputed,
+            e,
+        )
         data = {"name": dep.name, "pinned": dep.pinned, "status": "unknown"}
     data.setdefault("name", dep.name)
     data.setdefault("pinned", dep.pinned)

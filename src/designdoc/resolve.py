@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import json
 import re
+from io import StringIO
 from pathlib import Path
 
 from ruamel.yaml import YAML
+
+from designdoc.io_utils import atomic_write
 
 HIL_COMMENT_RE = re.compile(r"<!-- HIL: (HIL-\d+)[^>]*-->")
 
@@ -34,8 +37,11 @@ def load_hil_yaml(path: Path) -> dict:
 def save_hil_yaml(path: Path, doc: dict) -> None:
     y = YAML()
     y.indent(mapping=2, sequence=4, offset=2)
-    with path.open("w") as f:
-        y.dump(doc, f)
+    # Atomic .tmp-then-replace via io_utils. ruamel writes to a stream; capture
+    # into a buffer first.
+    buf = StringIO()
+    y.dump(doc, buf)
+    atomic_write(path, buf.getvalue())
 
 
 def emit_questions(hil_yaml: Path, output_dir: Path) -> dict:

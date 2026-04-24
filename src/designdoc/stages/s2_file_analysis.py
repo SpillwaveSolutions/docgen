@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+
+from pydantic import ValidationError
 
 from designdoc.agents.file_analyzer import FileSummary, build_prompt, make_file_analyzer
 from designdoc.io_utils import atomic_write
@@ -20,6 +23,8 @@ from designdoc.loop import doer_schema_loop
 from designdoc.stages._common import current_source_hashes, unwrap_taskgroup_exception
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
+
+log = logging.getLogger(__name__)
 
 STAGE_NAME = "file_analysis"
 OUTPUT_FILENAME = "stage2_summaries.json"
@@ -150,13 +155,20 @@ def _load_reusable_summaries(
 
 
 def _parse_or_placeholder(text: str, path: str) -> dict:
+    placeholder = {
+        "purpose": f"(HIL: summary for {path} disputed — see hil-issues.yaml)",
+        "key_types": [],
+        "key_functions": [],
+        "external_deps": [],
+        "notes": "unresolved",
+    }
     try:
         return FileSummary.model_validate_json(text).model_dump()
+    except ValidationError:
+        # Expected: doer output didn't match schema — placeholder is intended.
+        return placeholder
     except Exception:
-        return {
-            "purpose": f"(HIL: summary for {path} disputed — see hil-issues.yaml)",
-            "key_types": [],
-            "key_functions": [],
-            "external_deps": [],
-            "notes": "unresolved",
-        }
+        # Unexpected (encoding, memory, etc.) — log loud (Invariant 4) but
+        # still return placeholder so the pipeline doesn't halt on a single file.
+        log.exception("_parse_or_placeholder: unexpected exception for %s", path)
+        return placeholder

@@ -12,10 +12,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from typing import Literal
 
 from ruamel.yaml import YAML
+
+from designdoc.io_utils import atomic_write
 
 HILStatus = Literal["open", "resolved"]
 
@@ -75,5 +78,9 @@ def append_issue(path: Path, issue: HILIssue) -> None:
     doc["issues"].append(asdict(issue))
     doc["unresolved_count"] = sum(1 for i in doc["issues"] if i["status"] == "open")
     doc["generated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
-    with path.open("w") as f:
-        _yaml().dump(doc, f)
+    # Atomic .tmp-then-replace via io_utils, matching the rest of the project.
+    # ruamel writes to a stream, so capture into a buffer then hand the string
+    # to atomic_write.
+    buf = StringIO()
+    _yaml().dump(doc, buf)
+    atomic_write(path, buf.getvalue())
