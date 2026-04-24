@@ -59,10 +59,10 @@ Issue # column is back-filled in a separate PR after issue creation.
 | [#8](https://github.com/SpillwaveSolutions/docgen/issues/8)   | closed | [PR #21](https://github.com/SpillwaveSolutions/docgen/pull/21) |
 | [#9](https://github.com/SpillwaveSolutions/docgen/issues/9)   | open   | — |
 | [#10](https://github.com/SpillwaveSolutions/docgen/issues/10) | closed | [PR #23](https://github.com/SpillwaveSolutions/docgen/pull/23) |
-| [#11](https://github.com/SpillwaveSolutions/docgen/issues/11) | open   | — |
-| [#12](https://github.com/SpillwaveSolutions/docgen/issues/12) | open   | — |
+| [#11](https://github.com/SpillwaveSolutions/docgen/issues/11) | closed | [PR #27](https://github.com/SpillwaveSolutions/docgen/pull/27) |
+| [#12](https://github.com/SpillwaveSolutions/docgen/issues/12) | closed | [PR #25](https://github.com/SpillwaveSolutions/docgen/pull/25) |
 | [#13](https://github.com/SpillwaveSolutions/docgen/issues/13) | open   | — |
-| [#14](https://github.com/SpillwaveSolutions/docgen/issues/14) | open   | — |
+| [#14](https://github.com/SpillwaveSolutions/docgen/issues/14) | closed | [PR #26](https://github.com/SpillwaveSolutions/docgen/pull/26) |
 | [#15](https://github.com/SpillwaveSolutions/docgen/issues/15) | open   | — |
 | [#16](https://github.com/SpillwaveSolutions/docgen/issues/16) | closed | [PR #22](https://github.com/SpillwaveSolutions/docgen/pull/22) |
 | [#17](https://github.com/SpillwaveSolutions/docgen/issues/17) | open   | — |
