@@ -102,3 +102,42 @@ async def test_mcp_servers_set_setting_sources_for_config_inheritance():
     sources = sdk.last_options.get("setting_sources") or []
     assert "user" in sources
     assert "project" in sources
+
+
+@pytest.mark.anyio
+async def test_mcp_setting_sources_exact_user_project_local() -> None:
+    """T4.3 guard — when MCP servers are declared, setting_sources must be
+    exactly ['user', 'project', 'local'] in that order. The 'local' entry is
+    new context many tests omit; this guard ensures the runner glue doesn't
+    silently drift to a 2-element list."""
+    budget = CostAccumulator(cap_usd=1.0)
+    sdk = CapturingSDK()
+    r = ClaudeSDKRunner(budget=budget, sdk=sdk)
+
+    agent = AgentDef(
+        name="researcher",
+        system_prompt="p",
+        model="claude-sonnet-4-6",
+        mcp_servers=["perplexity"],
+    )
+    await r.run(agent, prompt="hi")
+
+    sources = sdk.last_options.get("setting_sources")
+    assert sources == ["user", "project", "local"], (
+        f"expected exactly ['user', 'project', 'local'], got {sources}"
+    )
+
+
+@pytest.mark.anyio
+async def test_mcp_no_servers_omits_setting_sources() -> None:
+    """When mcp_servers is empty, setting_sources should NOT be set
+    (otherwise we'd inherit project/local config without an MCP need for it)."""
+    budget = CostAccumulator(cap_usd=1.0)
+    sdk = CapturingSDK()
+    r = ClaudeSDKRunner(budget=budget, sdk=sdk)
+
+    agent = AgentDef(name="t", system_prompt="p", model="claude-sonnet-4-6", mcp_servers=[])
+    await r.run(agent, prompt="hi")
+
+    # Either absent or None — both acceptable. Not present in the dict is preferred.
+    assert sdk.last_options.get("setting_sources") in (None, [])
