@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -34,6 +34,9 @@ from designdoc.verdict import (
     CheckerVerdict,
     parse_verdict,
 )
+
+if TYPE_CHECKING:
+    from designdoc.state import PipelineState
 
 MAX_ATTEMPTS: int = 3
 """CANONICAL. Enforced here, nowhere else. Do not expose in config."""
@@ -74,11 +77,17 @@ async def doer_checker_loop(
     hil_sink: list[dict],
     stage_name: str = "unknown",
     debug_dir: Path | None = None,
+    state: PipelineState | None = None,
 ) -> ArtifactResult:
     """Run the doer/checker bouncer. Ships with HIL after MAX_ATTEMPTS failures.
 
     When debug_dir is set, every checker invocation's raw output + parse status
     is persisted under debug_dir. Opt-in diagnostic for INV-001.
+
+    When state is provided, the retry counters on it are incremented on the
+    retry branch (NOT on the terminal MAX_ATTEMPTS branch — that's ship-with-HIL,
+    not a retry). The increment site distinguishes checker-parse failures
+    (synthetic-fail verdict) from genuine doer-content objections.
     """
     effective_debug_dir = _resolve_debug_dir(debug_dir)
     current_text = (await runner.run(doer, doer_prompt)).text
@@ -105,11 +114,28 @@ async def doer_checker_loop(
                 hil_sink=hil_sink,
             )
 
+        _bump_retry_counter(state, verdict)
         # Retry with ONLY this attempt's issues — no cumulative drift.
         retry_prompt = _build_retry_prompt(doer_prompt, current_text, verdict)
         current_text = (await runner.run(doer, retry_prompt)).text
 
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _bump_retry_counter(state: PipelineState | None, verdict: CheckerVerdict) -> None:
+    """Classify a failing verdict and increment the matching retry counter.
+
+    Called ONLY on the retry branch — the terminal MAX_ATTEMPTS ship-with-HIL
+    path deliberately does not count (it's a HIL event, not a retry). Split
+    intent: INV-001 action item — readers of `designdoc status` need to tell
+    "checker parse flakiness" apart from "doer couldn't hit quality bar."
+    """
+    if state is None:
+        return
+    if verdict.summary.startswith(SYNTH_FAIL_PREFIX):
+        state.checker_parse_retries += 1
+    else:
+        state.doer_content_retries += 1
 
 
 def _ship_with_hil(
@@ -237,12 +263,16 @@ async def doer_schema_loop(
     runner: RunnerProtocol,
     hil_sink: list[dict],
     stage_name: str = "unknown",
+    state: PipelineState | None = None,
 ) -> ArtifactResult:
     """Like doer_checker_loop but the checker is a pydantic schema.
 
     Use when the doer's output is strictly-structured and a parser suffices —
     saves the cost of a second LLM call. The retry prompt includes the exact
     pydantic ValidationError so the doer can self-correct the JSON shape.
+
+    Schema retries always count as doer_content_retries: the doer, not a
+    checker LLM, produced wrong-shape output and is being asked to revise.
     """
     current_text = (await runner.run(doer, doer_prompt)).text
 
@@ -288,6 +318,8 @@ async def doer_schema_loop(
                 hil_sink=hil_sink,
             )
 
+        if state is not None:
+            state.doer_content_retries += 1
         retry_prompt = _build_retry_prompt(doer_prompt, current_text, verdict)
         current_text = (await runner.run(doer, retry_prompt)).text
 

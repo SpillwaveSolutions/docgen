@@ -30,7 +30,13 @@ class PipelineState:
     output_dir: Path
     current_stage: int = 0
     stages: dict[str, StageStatus] = field(default_factory=dict)
-    total_retries: int = 0
+    # Split (was total_retries pre-INV-001 split). Counts retries only — the
+    # terminal MAX_ATTEMPTS attempt that ships with HIL is NOT counted as a
+    # retry. See loop.py for the increment sites.
+    doer_content_retries: int = 0
+    """Retries triggered by genuine checker objections → doer revises content."""
+    checker_parse_retries: int = 0
+    """Retries triggered by synthetic-fail verdicts (checker output unparseable)."""
     hil_issues: list[dict] = field(default_factory=list)
     # v1.2: each artifact_index entry carries the output path AND the SHA1
     # of its inputs. On resume, an artifact is skipped only if the current
@@ -76,12 +82,20 @@ class PipelineState:
         path = output_dir / STATE_FILENAME
         if path.exists():
             d = json.loads(path.read_text())
+            # Backcompat: old state.json had total_retries; new split is
+            # doer_content_retries + checker_parse_retries. If new fields are
+            # absent, read old total_retries into doer_content_retries (the
+            # dominant case pre-split). If new fields exist, they win — an
+            # orphan legacy total_retries is ignored, not double-counted.
+            doer_content_retries = d.get("doer_content_retries", d.get("total_retries", 0))
+            checker_parse_retries = d.get("checker_parse_retries", 0)
             return cls(
                 target_repo=Path(d["target_repo"]),
                 output_dir=Path(d["output_dir"]),
                 current_stage=d["current_stage"],
                 stages={k: StageStatus(v) for k, v in d["stages"].items()},
-                total_retries=d["total_retries"],
+                doer_content_retries=doer_content_retries,
+                checker_parse_retries=checker_parse_retries,
                 hil_issues=d["hil_issues"],
                 artifact_index=_migrate_artifact_index(d.get("artifact_index", {})),
                 prev_hashes=d.get("prev_hashes", {}),
