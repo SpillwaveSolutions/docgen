@@ -173,10 +173,25 @@ def _class_input_hash(source_sha: str, class_signature: dict) -> str:
 
 
 def _class_doc_path(output_dir: Path, source_path: str, class_name: str) -> Path:
-    """Map a source file + class to an output path under packages/<pkg>/classes/."""
+    """Map a source file + class to an output path under packages/<pkg>/classes/.
+
+    Path-traversal guard: a malicious target-codebase filename like
+    ``../../etc/foo.py`` would otherwise yield a path outside the output
+    tree. After computing the path, assert it resolves under
+    ``output_dir/packages``; raise ``ValueError`` if not.
+    """
     src = Path(source_path)
     # Package = the last directory component of the source path (e.g. "payments")
     # Skip "src" wrappers — they're structural, not semantic packages.
     parts = [p for p in src.parent.parts if p not in ("src", ".", "")]
     pkg = parts[-1] if parts else "root"
-    return output_dir / OUTPUT_SUBDIR / pkg / "classes" / f"{class_name}.md"
+    out_path = output_dir / OUTPUT_SUBDIR / pkg / "classes" / f"{class_name}.md"
+
+    packages_root = (output_dir / OUTPUT_SUBDIR).resolve()
+    if not out_path.resolve().is_relative_to(packages_root):
+        raise ValueError(
+            f"computed class-doc path {out_path.resolve()} escapes {packages_root} "
+            f"(source_path={source_path!r}, class_name={class_name!r}); "
+            "rejecting to prevent path traversal"
+        )
+    return out_path
