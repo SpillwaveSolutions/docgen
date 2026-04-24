@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 
 from designdoc.budget import CostAccumulator
+from designdoc.io_utils import sha1_keyed
 from designdoc.runner import ClaudeSDKRunner
-from designdoc.stages.s6_tech_debt import _hash_dep
+from designdoc.stages.s6_tech_debt import _dep_hash_items
 from designdoc.stages.s6_tech_debt import run as stage_tech_debt
 from designdoc.state import PipelineState
 
@@ -138,7 +139,7 @@ async def test_stage6_partial_crash_resume(tmp_path: Path) -> None:
     # Simulate 'requests' having been completed before crash:
     # manually compute its input_hash and plant it in artifact_index with a row.
     requests_dep = Dep(name="requests", pinned=">=2.31", source="pyproject.toml")
-    req_hash = _hash_dep(requests_dep)
+    req_hash = sha1_keyed(_dep_hash_items([requests_dep]))
     req_row = {
         "name": "requests",
         "pinned": ">=2.31",

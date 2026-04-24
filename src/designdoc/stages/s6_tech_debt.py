@@ -17,7 +17,6 @@ mid-stage crash leaves a consistent (partial) ledger on disk.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 
 from designdoc.agents.tech_debt import (
@@ -27,13 +26,24 @@ from designdoc.agents.tech_debt import (
     make_tech_debt_researcher,
 )
 from designdoc.index.manifests import Dep, parse_manifests
-from designdoc.io_utils import atomic_write
+from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
 from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "tech_debt"
 OUTPUT_FILENAME = "TECH_DEBT.md"
 ROLLUP_KEY = "tech_debt"
+
+
+def _dep_hash_items(deps: list[Dep]) -> dict[str, str]:
+    """Encode deps as a dict keyed by name whose value packs ``pinned\\0source``.
+
+    When fed into :func:`designdoc.io_utils.sha1_keyed`, the resulting digest
+    absorbs ``name\\0pinned\\0source\\n`` for each dep in sorted(name) order —
+    byte-identical to the pre-refactor ``_hash_deps`` / ``_hash_dep`` helpers,
+    so existing state.json/artifact_index entries remain valid.
+    """
+    return {dep.name: f"{dep.pinned}\0{dep.source}" for dep in deps}
 
 
 async def run(
@@ -50,7 +60,7 @@ async def run(
     state.save()
 
     deps = parse_manifests(state.target_repo)
-    input_hash = _hash_deps(deps)
+    input_hash = sha1_keyed(_dep_hash_items(deps))
     output_path = state.output_dir / OUTPUT_FILENAME
 
     # v1.1 cross-run skip: whole-stage skip when dep manifest is unchanged.
@@ -71,7 +81,7 @@ async def run(
     # to exist — if TECH_DEBT.md was deleted the checkpoint is stale.
     rows: dict[str, dict] = {}
     for dep in deps:
-        dep_input_hash = _hash_dep(dep)
+        dep_input_hash = sha1_keyed(_dep_hash_items([dep]))
         artifact_id = f"dep:{dep.name}"
         prior = state.artifact_index.get(artifact_id, {})
         if (
@@ -91,7 +101,7 @@ async def run(
     to_process = [dep for dep in deps if dep.name not in rows]
 
     async def _one(dep: Dep) -> None:
-        dep_input_hash = _hash_dep(dep)
+        dep_input_hash = sha1_keyed(_dep_hash_items([dep]))
         async with sem:
             doer_prompt = build_researcher_prompt(dep.name, dep.pinned)
 
@@ -135,31 +145,6 @@ async def run(
         state.current_stage = max(state.current_stage, 7)
         state.save()
     return final_rows
-
-
-def _hash_deps(deps: list[Dep]) -> str:
-    """Stable SHA1 over (name, pinned, source) sorted by name."""
-    h = hashlib.sha1()
-    for dep in sorted(deps, key=lambda d: d.name):
-        h.update(dep.name.encode("utf-8"))
-        h.update(b"\0")
-        h.update(dep.pinned.encode("utf-8"))
-        h.update(b"\0")
-        h.update(dep.source.encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
-
-
-def _hash_dep(dep: Dep) -> str:
-    """SHA1 of a single dep's (name, pinned, source) triple."""
-    h = hashlib.sha1()
-    h.update(dep.name.encode("utf-8"))
-    h.update(b"\0")
-    h.update(dep.pinned.encode("utf-8"))
-    h.update(b"\0")
-    h.update(dep.source.encode("utf-8"))
-    h.update(b"\n")
-    return h.hexdigest()
 
 
 def _parse_report(text: str, dep, disputed: bool) -> dict:

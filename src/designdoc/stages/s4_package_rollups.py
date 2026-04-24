@@ -13,7 +13,6 @@ made. On any change, regenerate and update the recorded hash.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from pathlib import Path
 
 from designdoc.agents.package_documenter import (
@@ -23,7 +22,7 @@ from designdoc.agents.package_documenter import (
     make_package_documenter,
 )
 from designdoc.hil import inline_comment
-from designdoc.io_utils import atomic_write
+from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -57,7 +56,7 @@ async def run(
             continue
         pkg_name = pkg_dir.name
         rollup_key = f"package:{pkg_name}"
-        input_hash = _hash_class_docs(class_docs)
+        input_hash = sha1_keyed(class_docs)
         readme_path = pkg_dir / "README.md"
 
         if state.rollup_hashes.get(rollup_key) == input_hash and readme_path.exists():
@@ -132,14 +131,3 @@ def _collect_class_docs(pkg_dir: Path) -> dict[str, str]:
         for p in sorted(classes_dir.glob("*.md"))
         if not p.name.startswith(".")
     }
-
-
-def _hash_class_docs(class_docs: dict[str, str]) -> str:
-    """Stable SHA1 over class docs keyed by filename (sorted)."""
-    h = hashlib.sha1()
-    for name in sorted(class_docs):
-        h.update(name.encode("utf-8"))
-        h.update(b"\0")
-        h.update(class_docs[name].encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
