@@ -39,11 +39,86 @@ log = logging.getLogger(__name__)
 StageFn = Callable[..., Awaitable[Any]]
 
 
+# Other-stage prefix table — used by the class_docs classifier to reject
+# artifact ids that already belong to another stage. Module-level so any
+# future stage that grows its own prefix can amend it in one place.
+_OTHER_PREFIXES = ("file:", "package:", "mermaid:", "dep:", "system:")
+
+
+def _no_owns_id(_aid: str) -> bool:
+    return False
+
+
+def _no_kwargs(_cfg: Config) -> dict[str, Any]:
+    return {}
+
+
+# Built-in classifier predicates per stage name. StageEntry.__post_init__
+# fills owns_id from this table when the constructor caller doesn't supply
+# one explicitly — preserves the contract that StageEntry("class_docs",
+# fake_fn) classifies "<path>::<Class>" ids without the caller having to
+# know the rule.
+_BUILTIN_OWNS_ID: dict[str, Callable[[str], bool]] = {
+    "file_analysis": lambda aid: aid.startswith("file:"),
+    "class_docs": lambda aid: "::" in aid and not aid.startswith(_OTHER_PREFIXES),
+    "package_rollups": lambda aid: aid.startswith("package:"),
+    "mermaid": lambda aid: aid.startswith("mermaid:"),
+    "tech_debt": lambda aid: aid.startswith("dep:"),
+    "system_rollup": lambda aid: aid == "system:rollup",
+}
+
+
+# Built-in kwargs builders per stage name. Each stage gets the kwargs its
+# `run(**kwargs)` accepts. Lambdas reference _enabled_mcp at module-load
+# time but only call it at runtime — forward reference is safe.
+_BUILTIN_KWARGS_FN: dict[str, Callable[[Config], dict[str, Any]]] = {
+    "discover": lambda cfg: {
+        "exclude_paths": list(cfg.exclude_paths),
+        "include_languages": list(cfg.include_languages),
+    },
+    "file_analysis": lambda cfg: {
+        "doer_model": cfg.doer_model,
+        "parallelism": cfg.parallelism,
+    },
+    "class_docs": lambda cfg: {
+        "doer_model": cfg.doer_model,
+        "checker_model": cfg.checker_model,
+        "parallelism": cfg.parallelism,
+    },
+    "package_rollups": lambda cfg: {
+        "doer_model": cfg.doer_model,
+        "checker_model": cfg.checker_model,
+        "parallelism": cfg.parallelism,
+    },
+    "system_rollup": lambda cfg: {
+        "doer_model": cfg.doer_model,
+        "checker_model": cfg.checker_model,
+    },
+    "tech_debt": lambda cfg: {
+        "doer_model": cfg.doer_model,
+        "checker_model": cfg.checker_model,
+        "mcp_servers": _enabled_mcp(cfg),
+        "parallelism": cfg.parallelism,
+    },
+}
+
+
 @dataclass
 class StageEntry:
     name: str
     run: StageFn
     needs_runner: bool = True  # Stage 0/1/8 are deterministic
+    owns_id: Callable[[str], bool] | None = None
+    kwargs_fn: Callable[[Config], dict[str, Any]] | None = None
+
+    def __post_init__(self) -> None:
+        # Fall back to the per-name builtins so casual constructions like
+        # StageEntry("class_docs", fake_fn) still get the right classifier
+        # without callers having to know the rule.
+        if self.owns_id is None:
+            self.owns_id = _BUILTIN_OWNS_ID.get(self.name, _no_owns_id)
+        if self.kwargs_fn is None:
+            self.kwargs_fn = _BUILTIN_KWARGS_FN.get(self.name, _no_kwargs)
 
 
 def default_stage_table() -> list[StageEntry]:
@@ -107,9 +182,7 @@ class Orchestrator:
             if self.state.stages.get(entry.name) == StageStatus.DONE:
                 log.info("[%d/%d] stage %s already done, skipping", idx, total, entry.name)
                 continue
-            prior_count = sum(
-                1 for id_ in self.state.artifact_index if self._id_belongs_to_stage(id_, entry.name)
-            )
+            prior_count = sum(1 for id_ in self.state.artifact_index if entry.owns_id(id_))
             if prior_count > 0:
                 log.info(
                     "[%d/%d] stage %s: %d artifacts checkpointed",
@@ -125,7 +198,7 @@ class Orchestrator:
                 kwargs: dict[str, Any] = {"state": self.state}
                 if entry.needs_runner:
                     kwargs["runner"] = self.runner
-                kwargs.update(self._stage_kwargs(entry.name))
+                kwargs.update(entry.kwargs_fn(self.config))
                 await entry.run(**kwargs)
                 self.budget.save()
             except BudgetExceededError:
@@ -150,65 +223,6 @@ class Orchestrator:
                 entry.name,
                 time.monotonic() - start,
             )
-
-    # Prefix table: maps stage name -> predicate on artifact_id.
-    # Stages 2,4,5,6,7 use a fixed prefix; Stage 3's class_docs ids are
-    # "<path>::<ClassName>" with no prefix so we detect them by "::"
-    # plus exclusion of other known prefixes.
-    _OTHER_PREFIXES = ("file:", "package:", "mermaid:", "dep:", "system:")
-
-    @classmethod
-    def _id_belongs_to_stage(cls, artifact_id: str, stage_name: str) -> bool:
-        if stage_name == "file_analysis":
-            return artifact_id.startswith("file:")
-        if stage_name == "package_rollups":
-            return artifact_id.startswith("package:")
-        if stage_name == "mermaid":
-            return artifact_id.startswith("mermaid:")
-        if stage_name == "tech_debt":
-            return artifact_id.startswith("dep:")
-        if stage_name == "system_rollup":
-            return artifact_id == "system:rollup"
-        if stage_name == "class_docs":
-            return "::" in artifact_id and not artifact_id.startswith(cls._OTHER_PREFIXES)
-        return False
-
-    def _stage_kwargs(self, stage_name: str) -> dict[str, Any]:
-        """Per-stage kwargs derived from config. Only pass keys the stage accepts.
-
-        Kept explicit per-stage because the stage signatures diverge —
-        s2_file_analysis uses a pydantic schema checker (no checker_model),
-        s5_mermaid's models are driven by the mermaid_generator factory
-        directly, and s8_finalize is deterministic.
-        """
-        p = self.config.parallelism
-        if stage_name == "discover":
-            return {
-                "exclude_paths": list(self.config.exclude_paths),
-                "include_languages": list(self.config.include_languages),
-            }
-        if stage_name == "file_analysis":
-            return {"doer_model": self.config.doer_model, "parallelism": p}
-        if stage_name in ("class_docs", "package_rollups"):
-            return {
-                "doer_model": self.config.doer_model,
-                "checker_model": self.config.checker_model,
-                "parallelism": p,
-            }
-        if stage_name == "system_rollup":
-            # Single-artifact stage — no parallelism benefit.
-            return {
-                "doer_model": self.config.doer_model,
-                "checker_model": self.config.checker_model,
-            }
-        if stage_name == "tech_debt":
-            return {
-                "doer_model": self.config.doer_model,
-                "checker_model": self.config.checker_model,
-                "mcp_servers": _enabled_mcp(self.config),
-                "parallelism": p,
-            }
-        return {}
 
 
 def _enabled_mcp(config: Config) -> list[str]:
