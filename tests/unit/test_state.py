@@ -24,7 +24,8 @@ def test_roundtrip_preserves_all_fields(tmp_path: Path):
     s.stages["discover"] = StageStatus.DONE
     s.stages["index"] = StageStatus.RUNNING
     s.current_stage = 1
-    s.total_retries = 4
+    s.doer_content_retries = 3
+    s.checker_parse_retries = 1
     s.hil_issues.append({"id": "HIL-001", "severity": "major"})
     s.artifact_index["pkg.ClassA"] = {
         "path": "packages/pkg/classes/ClassA.md",
@@ -36,7 +37,8 @@ def test_roundtrip_preserves_all_fields(tmp_path: Path):
     assert s2.stages["discover"] == StageStatus.DONE
     assert s2.stages["index"] == StageStatus.RUNNING
     assert s2.current_stage == 1
-    assert s2.total_retries == 4
+    assert s2.doer_content_retries == 3
+    assert s2.checker_parse_retries == 1
     assert s2.hil_issues == [{"id": "HIL-001", "severity": "major"}]
     assert s2.artifact_index == {
         "pkg.ClassA": {

@@ -10,11 +10,13 @@ reliability claim collapses. Specifically:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from designdoc.loop import doer_checker_loop
 from designdoc.runner import AgentDef, RunResult
+from designdoc.state import PipelineState
 
 
 class ScriptedRunner:
@@ -361,3 +363,128 @@ async def test_retry_prompt_contains_only_latest_issues():
     assert agent_name == "doer"
     assert "FIX-FROM-ATTEMPT-1" in retry_prompt  # latest issue
     assert "ORIGINAL-TASK" in retry_prompt  # original task included
+
+
+def _make_state(tmp_path: Path) -> PipelineState:
+    return PipelineState(target_repo=Path("/x"), output_dir=tmp_path)
+
+
+@pytest.mark.anyio
+async def test_parse_failure_retries_bump_checker_parse_counter(tmp_path):
+    """Three parse-failures → ships with HIL after 2 retries. Both retries
+    are checker-parse retries (synthetic-fail verdict). The terminal attempt
+    is NOT counted — it routes through _ship_with_hil, not the retry branch."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": ["not json", "also not json", "still not json"],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+    state = _make_state(tmp_path)
+
+    result = await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=state.hil_issues,
+        state=state,
+    )
+
+    assert result.status == "shipped_with_hil"
+    assert state.checker_parse_retries == 2
+    assert state.doer_content_retries == 0
+
+
+@pytest.mark.anyio
+async def test_content_failure_retries_bump_doer_content_counter(tmp_path):
+    """Three real-fail verdicts → ships with HIL after 2 retries. Both retries
+    are doer-content retries (genuine checker objections). Terminal not counted."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": [_fail_json(1), _fail_json(2), _fail_json(3)],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+    state = _make_state(tmp_path)
+
+    result = await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=state.hil_issues,
+        state=state,
+    )
+
+    assert result.status == "shipped_with_hil"
+    assert state.doer_content_retries == 2
+    assert state.checker_parse_retries == 0
+
+
+@pytest.mark.anyio
+async def test_mixed_failures_bump_both_counters_then_pass(tmp_path):
+    """Parse-fail → real-fail → pass. Two retries total, one of each kind.
+    Final pass does NOT increment either counter — the counters record
+    retries, not attempts."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2", "d3"],
+            "checker": [
+                "not json",  # synthetic-fail → checker_parse_retries
+                _fail_json(2),  # real fail → doer_content_retries
+                '{"status":"pass","summary":"ok"}',  # pass
+            ],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+    state = _make_state(tmp_path)
+
+    result = await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=state.hil_issues,
+        state=state,
+    )
+
+    assert result.status == "pass"
+    assert state.checker_parse_retries == 1
+    assert state.doer_content_retries == 1
+
+
+@pytest.mark.anyio
+async def test_state_param_optional_preserves_backward_compat(tmp_path):
+    """Omitting state= must not crash — it's a kw-only default-None param so
+    in-tree tests that predate the split still work unchanged."""
+    runner = ScriptedRunner(
+        {
+            "doer": ["d1", "d2"],
+            "checker": ["not json", '{"status":"pass","summary":"ok"}'],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="", model="m")
+    checker = AgentDef(name="checker", system_prompt="", model="m")
+
+    result = await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        doer_prompt="p",
+        checker_prompt_fn=lambda d: d,
+        runner=runner,
+        hil_sink=[],
+    )
+    assert result.status == "pass"

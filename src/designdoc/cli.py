@@ -217,7 +217,11 @@ def status(
     for name, status_val in state.stages.items():
         typer.echo(f"  {name}: {status_val}")
     typer.echo(f"hil_issues: {len(state.hil_issues)}")
-    typer.echo(f"total_retries: {state.total_retries}")
+    # INV-001: split retry metric so readers can tell a checker-parse-flakiness
+    # problem (model emits unparseable JSON) from a doer-content-quality
+    # problem (doer can't hit the reviewer's bar).
+    typer.echo(f"doer_content_retries: {state.doer_content_retries}")
+    typer.echo(f"checker_parse_retries: {state.checker_parse_retries}")
 
     # Incremental-regeneration readiness hints.
     _print_incremental_hints(state)

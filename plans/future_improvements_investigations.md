@@ -97,7 +97,7 @@ Both reviewers independently endorse the raw-output capture as the decisive next
 - [x] Extend `parse_verdict` with a defensive code-fence-strip pass. Done 2026-04-21.
 - [x] Add unit test fixtures of real-world malformed checker outputs. Done — `tests/unit/test_verdict.py` gained 6 fence-behavior tests.
 - [ ] Run a full end-to-end dogfood to confirm 0 HILs post-fix (replay on captures already proved 9/9 false failures now parse as pass).
-- [ ] Distinguish "checker parse retries" from "doer content retries" in `total_retries` stat.
+- [x] Distinguish "checker parse retries" from "doer content retries" in `total_retries` stat. Done 2026-04-23 — split into `doer_content_retries` + `checker_parse_retries` (PR #7).
 - [ ] Consider migrating high-value checker paths to Anthropic's tool-use JSON mode (Codex's preferred long-term fix; not required to resolve INV-001).
 
 ### Diagnostic findings (2026-04-21)
