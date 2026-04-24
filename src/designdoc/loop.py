@@ -96,22 +96,13 @@ async def doer_checker_loop(
             return ArtifactResult(artifact_id, "pass", current_text, attempt, verdict)
 
         if attempt == MAX_ATTEMPTS:
-            hil_sink.append(
-                _build_hil_entry(
-                    artifact_id,
-                    stage_name,
-                    current_text,
-                    verdict,
-                    attempt,
-                    hil_sink,
-                )
-            )
-            return ArtifactResult(
-                artifact_id,
-                "shipped_with_hil",
-                current_text,
-                attempt,
-                verdict,
+            return _ship_with_hil(
+                artifact_id=artifact_id,
+                stage_name=stage_name,
+                current_text=current_text,
+                verdict=verdict,
+                attempt=attempt,
+                hil_sink=hil_sink,
             )
 
         # Retry with ONLY this attempt's issues — no cumulative drift.
@@ -119,6 +110,32 @@ async def doer_checker_loop(
         current_text = (await runner.run(doer, retry_prompt)).text
 
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _ship_with_hil(
+    *,
+    artifact_id: str,
+    stage_name: str,
+    current_text: str,
+    verdict: CheckerVerdict,
+    attempt: int,
+    hil_sink: list[dict],
+) -> ArtifactResult:
+    """Append HIL entry and return shipped_with_hil ArtifactResult.
+
+    Shared by doer_checker_loop and doer_schema_loop — the MAX_ATTEMPTS
+    branch is identical in both and must stay identical (Invariant 5).
+    """
+    hil_sink.append(
+        _build_hil_entry(artifact_id, stage_name, current_text, verdict, attempt, hil_sink)
+    )
+    return ArtifactResult(
+        artifact_id,
+        "shipped_with_hil",
+        current_text,
+        attempt,
+        verdict,
+    )
 
 
 def _build_retry_prompt(original: str, previous_output: str, verdict: CheckerVerdict) -> str:
@@ -262,10 +279,14 @@ async def doer_schema_loop(
             )
 
         if attempt == MAX_ATTEMPTS:
-            hil_sink.append(
-                _build_hil_entry(artifact_id, stage_name, current_text, verdict, attempt, hil_sink)
+            return _ship_with_hil(
+                artifact_id=artifact_id,
+                stage_name=stage_name,
+                current_text=current_text,
+                verdict=verdict,
+                attempt=attempt,
+                hil_sink=hil_sink,
             )
-            return ArtifactResult(artifact_id, "shipped_with_hil", current_text, attempt, verdict)
 
         retry_prompt = _build_retry_prompt(doer_prompt, current_text, verdict)
         current_text = (await runner.run(doer, retry_prompt)).text
