@@ -152,10 +152,10 @@ class Orchestrator:
             )
 
     # Prefix table: maps stage name -> predicate on artifact_id.
-    # Stages 2,4,5,6 use a fixed prefix; Stage 3's class_docs ids are
+    # Stages 2,4,5,6,7 use a fixed prefix; Stage 3's class_docs ids are
     # "<path>::<ClassName>" with no prefix so we detect them by "::"
     # plus exclusion of other known prefixes.
-    _OTHER_PREFIXES = ("file:", "package:", "mermaid:", "dep:")
+    _OTHER_PREFIXES = ("file:", "package:", "mermaid:", "dep:", "system:")
 
     @classmethod
     def _id_belongs_to_stage(cls, artifact_id: str, stage_name: str) -> bool:
@@ -167,6 +167,8 @@ class Orchestrator:
             return artifact_id.startswith("mermaid:")
         if stage_name == "tech_debt":
             return artifact_id.startswith("dep:")
+        if stage_name == "system_rollup":
+            return artifact_id == "system:rollup"
         if stage_name == "class_docs":
             return "::" in artifact_id and not artifact_id.startswith(cls._OTHER_PREFIXES)
         return False
