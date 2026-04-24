@@ -93,6 +93,7 @@ async def run(
                 runner=runner,
                 hil_sink=state.hil_issues,
                 stage_name=STAGE_NAME,
+                state=state,
             )
             summary = _parse_or_placeholder(result.text, path)
 
