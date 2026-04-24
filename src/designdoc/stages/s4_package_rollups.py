@@ -24,6 +24,7 @@ from designdoc.agents.package_documenter import (
 from designdoc.hil import inline_comment
 from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
+from designdoc.stages._common import unwrap_taskgroup_exception
 from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "package_rollups"
@@ -111,9 +112,18 @@ async def run(
 
         return pkg_name, rel, input_hash
 
-    for pkg_name, rel_path, _input_hash in await asyncio.gather(
-        *[_one(*args) for args in to_process]
-    ):
+    # TaskGroup cancels siblings on first raise — gather would leak paid
+    # LLM calls past a BudgetExceededError. Tasks are captured up front so
+    # we can read their results after the group exits cleanly.
+    tasks: list[asyncio.Task[tuple[str, str, str]]] = []
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for args in to_process:
+                tasks.append(tg.create_task(_one(*args)))
+    except BaseExceptionGroup as eg:
+        raise unwrap_taskgroup_exception(eg) from eg
+    for task in tasks:
+        pkg_name, rel_path, _input_hash = task.result()
         written[pkg_name] = rel_path
 
     state.stages[STAGE_NAME] = StageStatus.DONE

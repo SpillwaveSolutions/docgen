@@ -28,6 +28,7 @@ from designdoc.agents.tech_debt import (
 from designdoc.index.manifests import Dep, parse_manifests
 from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
+from designdoc.stages._common import unwrap_taskgroup_exception
 from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "tech_debt"
@@ -133,7 +134,15 @@ async def run(
             }
             state.save()
 
-    await asyncio.gather(*[_one(dep) for dep in to_process])
+    # TaskGroup cancels siblings on first raise — gather would leak paid
+    # LLM calls past a BudgetExceededError. Unwrap to preserve the raw
+    # exception type the orchestrator and callers expect.
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for dep in to_process:
+                tg.create_task(_one(dep))
+    except BaseExceptionGroup as eg:
+        raise unwrap_taskgroup_exception(eg) from eg
 
     # Final atomic write with all deps in manifest order.
     final_rows = [rows[dep.name] for dep in deps if dep.name in rows]
