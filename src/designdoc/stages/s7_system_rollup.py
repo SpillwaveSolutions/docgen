@@ -3,6 +3,11 @@
 v1.1 incremental: SHA1 the concatenation of package READMEs (sorted by name)
 and compare against state.rollup_hashes["system:rollup"]. On match, keep the
 existing SYSTEM_DESIGN.md + ARCHITECTURE.md and skip the LLM call.
+
+v1.2 within-stage resume: additionally record a "system:rollup" entry in
+state.artifact_index after the doer/checker loop succeeds. Mirrors stages
+2-6 so a mid-stage crash preserves the checkpoint and a rerun skips the
+loop when both input_hash matches and both outputs still exist.
 """
 
 from __future__ import annotations
@@ -49,13 +54,15 @@ async def run(
     arch_path = state.output_dir / ARCHITECTURE_FILENAME
     input_hash = sha1_keyed(pkg_readmes)
 
-    # Skip when inputs match the last successful regeneration AND both
-    # outputs still exist (guard against manual deletes).
-    if (
-        state.rollup_hashes.get(ROLLUP_KEY) == input_hash
-        and sys_path.exists()
-        and arch_path.exists()
-    ):
+    # Skip the loop when inputs are unchanged AND both outputs still exist.
+    # Two caches feed the check: artifact_index (v1.2 within-stage, survives
+    # a mid-stage crash) and rollup_hashes (v1.1 cross-run, set only after
+    # full success). Either match is sufficient.
+    prior_index_hash = state.artifact_index.get(ROLLUP_KEY, {}).get("input_hash")
+    cached = input_hash != "" and (
+        prior_index_hash == input_hash or state.rollup_hashes.get(ROLLUP_KEY) == input_hash
+    )
+    if cached and sys_path.exists() and arch_path.exists():
         state.stages[STAGE_NAME] = StageStatus.DONE
         state.current_stage = max(state.current_stage, 8)
         async with state_lock:
@@ -93,6 +100,13 @@ async def run(
     atomic_write(sys_path, sys_md)
     atomic_write(arch_path, arch_md)
 
+    # v1.2 within-stage checkpoint: record system:rollup in artifact_index
+    # so a rerun after a mid-stage crash can skip the loop. Mirrors the
+    # pattern used by stages 2-6. rollup_hashes stays as the cross-run cache.
+    state.artifact_index[ROLLUP_KEY] = {
+        "path": str(sys_path.relative_to(state.output_dir)),
+        "input_hash": input_hash,
+    }
     state.rollup_hashes[ROLLUP_KEY] = input_hash
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 8)
