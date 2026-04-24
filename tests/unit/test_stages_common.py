@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from designdoc.stages._common import current_source_hashes
+from designdoc.budget import BudgetExceededError
+from designdoc.stages._common import current_source_hashes, unwrap_taskgroup_exception
 from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
 from designdoc.state import PipelineState
 
@@ -61,3 +62,31 @@ def test_returns_empty_when_hashes_value_is_empty_dict(tmp_path: Path):
     state = _mk_state(tmp_path)
     (state.output_dir / STAGE0_FILENAME).write_text(json.dumps({"hashes": {}}))
     assert current_source_hashes(state) == {}
+
+
+# --- unwrap_taskgroup_exception ---------------------------------------------
+
+
+def test_unwrap_returns_budget_error_when_present():
+    budget = BudgetExceededError("cap hit")
+    other = RuntimeError("sibling crash")
+    eg = BaseExceptionGroup("tg", [other, budget])
+    assert unwrap_taskgroup_exception(eg) is budget
+
+
+def test_unwrap_returns_budget_error_from_nested_group():
+    budget = BudgetExceededError("cap hit")
+    inner = BaseExceptionGroup("inner", [budget])
+    outer = BaseExceptionGroup("outer", [RuntimeError("x"), inner])
+    assert unwrap_taskgroup_exception(outer) is budget
+
+
+def test_unwrap_returns_single_exception_when_no_budget_error():
+    single = RuntimeError("crashed")
+    eg = BaseExceptionGroup("tg", [single])
+    assert unwrap_taskgroup_exception(eg) is single
+
+
+def test_unwrap_preserves_group_when_multiple_non_budget_exceptions():
+    eg = BaseExceptionGroup("tg", [RuntimeError("a"), ValueError("b")])
+    assert unwrap_taskgroup_exception(eg) is eg

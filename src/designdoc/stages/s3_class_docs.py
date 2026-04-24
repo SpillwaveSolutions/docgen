@@ -33,7 +33,7 @@ from designdoc.agents.doc_quality_checker import (
 from designdoc.hil import inline_comment
 from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
-from designdoc.stages._common import current_source_hashes
+from designdoc.stages._common import current_source_hashes, unwrap_taskgroup_exception
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -133,7 +133,15 @@ async def run(
             }
             state.save()
 
-    await asyncio.gather(*[_one(s, c) for s, c in to_process])
+    # TaskGroup cancels siblings on first raise — gather would leak paid
+    # LLM calls past a BudgetExceededError. Unwrap to preserve the raw
+    # exception type the orchestrator and callers expect.
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for sig, cls in to_process:
+                tg.create_task(_one(sig, cls))
+    except BaseExceptionGroup as eg:
+        raise unwrap_taskgroup_exception(eg) from eg
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 4)

@@ -17,7 +17,7 @@ import json
 from designdoc.agents.file_analyzer import FileSummary, build_prompt, make_file_analyzer
 from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_schema_loop
-from designdoc.stages._common import current_source_hashes
+from designdoc.stages._common import current_source_hashes, unwrap_taskgroup_exception
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -108,7 +108,15 @@ async def run(
             }
             state.save()
 
-    await asyncio.gather(*[_one(s) for s in to_process])
+    # TaskGroup cancels siblings on first raise — gather would leak paid
+    # LLM calls past a BudgetExceededError. Unwrap to preserve the raw
+    # exception type the orchestrator and callers expect.
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for sig in to_process:
+                tg.create_task(_one(sig))
+    except BaseExceptionGroup as eg:
+        raise unwrap_taskgroup_exception(eg) from eg
 
     # Persist the pruned + updated summaries even when no LLM calls fired
     # (e.g. everything was reusable from prev_hashes and a file was deleted:
