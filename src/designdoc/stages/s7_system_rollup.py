@@ -19,7 +19,7 @@ from designdoc.agents.system_designer import (
 from designdoc.hil import inline_comment
 from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "system_rollup"
 SYSTEM_FILENAME = "SYSTEM_DESIGN.md"
@@ -44,7 +44,8 @@ async def run(
         raise FileNotFoundError("no package READMEs found — run Stage 4 first")
 
     state.stages[STAGE_NAME] = StageStatus.RUNNING
-    state.save()
+    async with state_lock:
+        state.save()
 
     sys_path = state.output_dir / SYSTEM_FILENAME
     arch_path = state.output_dir / ARCHITECTURE_FILENAME
@@ -59,7 +60,8 @@ async def run(
     ):
         state.stages[STAGE_NAME] = StageStatus.DONE
         state.current_stage = max(state.current_stage, 8)
-        state.save()
+        async with state_lock:
+            state.save()
         return {
             SYSTEM_FILENAME: str(sys_path.relative_to(state.output_dir)),
             ARCHITECTURE_FILENAME: str(arch_path.relative_to(state.output_dir)),
@@ -96,7 +98,8 @@ async def run(
     state.rollup_hashes[ROLLUP_KEY] = input_hash
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 8)
-    state.save()
+    async with state_lock:
+        state.save()
     return {
         SYSTEM_FILENAME: str(sys_path.relative_to(state.output_dir)),
         ARCHITECTURE_FILENAME: str(arch_path.relative_to(state.output_dir)),

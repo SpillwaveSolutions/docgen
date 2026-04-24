@@ -12,7 +12,7 @@ from pathlib import Path
 
 from designdoc.hil import HILIssue, append_issue
 from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "finalize"
 README_FILENAME = "README.md"
@@ -25,7 +25,8 @@ async def run(*, state: PipelineState) -> dict[str, str]:
     output.mkdir(parents=True, exist_ok=True)
 
     state.stages[STAGE_NAME] = StageStatus.RUNNING
-    state.save()
+    async with state_lock:
+        state.save()
 
     readme_path = output / README_FILENAME
     readme_path.write_text(_render_toc(output))
@@ -41,7 +42,8 @@ async def run(*, state: PipelineState) -> dict[str, str]:
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 9)
-    state.save()
+    async with state_lock:
+        state.save()
     return {
         "readme": str(readme_path.relative_to(output)),
         "hil": str(hil_path.relative_to(output)) if hil_path.exists() else "",

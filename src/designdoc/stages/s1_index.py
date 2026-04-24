@@ -11,7 +11,7 @@ import json
 from designdoc.index.signatures import FileSignature, extract_signature
 from designdoc.io_utils import atomic_write
 from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "index"
 OUTPUT_FILENAME = "stage1_signatures.json"
@@ -24,7 +24,8 @@ async def run(*, state: PipelineState) -> list[FileSignature]:
         raise FileNotFoundError(f"stage 0 output missing ({stage0_path}); run stage 0 first")
 
     state.stages[STAGE_NAME] = StageStatus.RUNNING
-    state.save()
+    async with state_lock:
+        state.save()
 
     data = json.loads(stage0_path.read_text())
     repo_root = state.target_repo
@@ -45,5 +46,6 @@ async def run(*, state: PipelineState) -> list[FileSignature]:
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 2)
-    state.save()
+    async with state_lock:
+        state.save()
     return signatures

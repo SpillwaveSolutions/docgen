@@ -32,7 +32,7 @@ from designdoc.stages import (
     s7_system_rollup,
     s8_finalize,
 )
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +131,8 @@ class Orchestrator:
             except BudgetExceededError:
                 self.state.stages[entry.name] = StageStatus.FAILED
                 self.state.halted_on_budget = True
-                self.state.save()
+                async with state_lock:
+                    self.state.save()
                 self.budget.save()
                 log.info(
                     "[%d/%d] stage %s halted after %.1fs (budget exceeded) — "
