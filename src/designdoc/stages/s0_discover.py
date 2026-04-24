@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 from designdoc.index.discover import DiscoveryReport, discover
+from designdoc.io_utils import atomic_write
 from designdoc.state import PipelineState, StageStatus
 
 STAGE_NAME = "discover"
@@ -32,7 +33,10 @@ async def run(
     )
 
     state.output_dir.mkdir(parents=True, exist_ok=True)
-    (state.output_dir / OUTPUT_FILENAME).write_text(json.dumps(report.to_dict(), indent=2))
+    atomic_write(
+        state.output_dir / OUTPUT_FILENAME,
+        json.dumps(report.to_dict(), indent=2),
+    )
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 1)
