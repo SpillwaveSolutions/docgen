@@ -10,7 +10,7 @@ import json
 
 from designdoc.index.discover import DiscoveryReport, discover
 from designdoc.io_utils import atomic_write
-from designdoc.state import PipelineState, StageStatus
+from designdoc.state import PipelineState, StageStatus, state_lock
 
 STAGE_NAME = "discover"
 OUTPUT_FILENAME = "stage0_discovery.json"
@@ -24,7 +24,8 @@ async def run(
 ) -> DiscoveryReport:
     """Execute Stage 0 and checkpoint the result."""
     state.stages[STAGE_NAME] = StageStatus.RUNNING
-    state.save()
+    async with state_lock:
+        state.save()
 
     report = discover(
         state.target_repo,
@@ -40,5 +41,6 @@ async def run(
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 1)
-    state.save()
+    async with state_lock:
+        state.save()
     return report
