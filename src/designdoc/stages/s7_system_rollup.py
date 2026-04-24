@@ -7,8 +7,6 @@ existing SYSTEM_DESIGN.md + ARCHITECTURE.md and skip the LLM call.
 
 from __future__ import annotations
 
-import hashlib
-
 from designdoc.agents.system_designer import (
     build_checker_prompt,
     build_doer_prompt,
@@ -17,7 +15,7 @@ from designdoc.agents.system_designer import (
     split_doer_output,
 )
 from designdoc.hil import inline_comment
-from designdoc.io_utils import atomic_write
+from designdoc.io_utils import atomic_write, sha1_keyed
 from designdoc.loop import doer_checker_loop
 from designdoc.state import PipelineState, StageStatus, state_lock
 
@@ -49,7 +47,7 @@ async def run(
 
     sys_path = state.output_dir / SYSTEM_FILENAME
     arch_path = state.output_dir / ARCHITECTURE_FILENAME
-    input_hash = _hash_readmes(pkg_readmes)
+    input_hash = sha1_keyed(pkg_readmes)
 
     # Skip when inputs match the last successful regeneration AND both
     # outputs still exist (guard against manual deletes).
@@ -108,14 +106,3 @@ async def run(
 
 def _collect_readmes(packages_dir) -> dict[str, str]:
     return {p.parent.name: p.read_text() for p in sorted(packages_dir.glob("*/README.md"))}
-
-
-def _hash_readmes(readmes: dict[str, str]) -> str:
-    """Stable SHA1 over package READMEs keyed by package name (sorted)."""
-    h = hashlib.sha1()
-    for name in sorted(readmes):
-        h.update(name.encode("utf-8"))
-        h.update(b"\0")
-        h.update(readmes[name].encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
