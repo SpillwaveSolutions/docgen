@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 from designdoc.index.signatures import FileSignature, extract_signature
+from designdoc.io_utils import atomic_write
 from designdoc.stages.s0_discover import OUTPUT_FILENAME as STAGE0_FILENAME
 from designdoc.state import PipelineState, StageStatus
 
@@ -40,7 +41,7 @@ async def run(*, state: PipelineState) -> list[FileSignature]:
             continue
 
     out_path = state.output_dir / OUTPUT_FILENAME
-    out_path.write_text(json.dumps([s.to_dict() for s in signatures], indent=2))
+    atomic_write(out_path, json.dumps([s.to_dict() for s in signatures], indent=2))
 
     state.stages[STAGE_NAME] = StageStatus.DONE
     state.current_stage = max(state.current_stage, 2)

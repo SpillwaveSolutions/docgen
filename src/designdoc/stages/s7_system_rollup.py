@@ -17,6 +17,7 @@ from designdoc.agents.system_designer import (
     split_doer_output,
 )
 from designdoc.hil import inline_comment
+from designdoc.io_utils import atomic_write
 from designdoc.loop import doer_checker_loop
 from designdoc.state import PipelineState, StageStatus
 
@@ -89,8 +90,8 @@ async def run(
         sys_md = prefix + sys_md
         arch_md = prefix + arch_md
 
-    sys_path.write_text(sys_md)
-    arch_path.write_text(arch_md)
+    atomic_write(sys_path, sys_md)
+    atomic_write(arch_path, arch_md)
 
     state.rollup_hashes[ROLLUP_KEY] = input_hash
     state.stages[STAGE_NAME] = StageStatus.DONE
