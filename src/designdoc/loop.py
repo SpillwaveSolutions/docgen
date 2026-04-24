@@ -23,11 +23,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
-from designdoc.runner import AgentDef  # noqa: F401 — re-export for callers
+from designdoc.runner import AgentDef, RunnerProtocol
 from designdoc.verdict import (
     SYNTH_FAIL_PREFIX,
     CheckerIssue,
@@ -70,7 +70,7 @@ async def doer_checker_loop(
     checker: AgentDef,
     doer_prompt: str,
     checker_prompt_fn: Callable[[str], str],
-    runner: Any,
+    runner: RunnerProtocol,
     hil_sink: list[dict],
     stage_name: str = "unknown",
     debug_dir: Path | None = None,
@@ -217,7 +217,7 @@ async def doer_schema_loop(
     doer: AgentDef,
     doer_prompt: str,
     schema_model: type[BaseModel],
-    runner: Any,
+    runner: RunnerProtocol,
     hil_sink: list[dict],
     stage_name: str = "unknown",
 ) -> ArtifactResult:

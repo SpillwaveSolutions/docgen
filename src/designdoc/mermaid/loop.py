@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from designdoc.agents.mermaid_generator import (
     build_doer_prompt,
@@ -20,7 +21,7 @@ from designdoc.agents.mermaid_generator import (
 )
 from designdoc.loop import ArtifactResult, doer_checker_loop
 from designdoc.mermaid.mmdc import validate as mmdc_validate
-from designdoc.runner import AgentDef
+from designdoc.runner import AgentDef, RunnerProtocol, RunResult
 
 FENCE_RE = re.compile(r"^```(?:mermaid)?\s*\n?|\n?```\s*$", re.MULTILINE)
 
@@ -30,11 +31,32 @@ def strip_fence(text: str) -> str:
     return FENCE_RE.sub("", text).strip()
 
 
+@dataclass
+class _CompositeCheckerRunner:
+    """Proxy runner that routes the synthetic ``mermaid-combined-checker`` agent
+    through ``combined_check`` (mmdc syntax + LLM semantic). All other agents
+    pass through to ``inner`` unchanged.
+
+    Conforms to ``RunnerProtocol``: the loop only ever calls ``run(agent, prompt)``.
+    Promoted to module level (rather than nested inside the factory) so it can
+    be unit-tested in isolation.
+    """
+
+    inner: RunnerProtocol
+    combined_check: Callable[[str], Awaitable[str]]
+
+    async def run(self, agent: AgentDef, prompt: str) -> RunResult:
+        if agent.name == "mermaid-combined-checker":
+            text = await self.combined_check(prompt)
+            return RunResult(text=text, input_tokens=0, output_tokens=0, cost_usd=0.0)
+        return await self.inner.run(agent, prompt)
+
+
 async def generate_validated_mermaid(
     *,
     artifact_name: str,
     artifact_text: str,
-    runner: Any,
+    runner: RunnerProtocol,
     hil_sink: list[dict],
     doer: AgentDef | None = None,
     validator: AgentDef | None = None,
@@ -75,20 +97,6 @@ async def generate_validated_mermaid(
         semantic_result = await runner.run(validator, semantic_prompt)
         return semantic_result.text
 
-    class _CompositeCheckerRunner:
-        """Proxy runner that routes checker calls through combined_check."""
-
-        def __init__(self, inner):
-            self.inner = inner
-
-        async def run(self, agent, prompt):
-            if agent.name == "mermaid-combined-checker":
-                text = await combined_check(prompt)
-                from designdoc.runner import RunResult
-
-                return RunResult(text=text, input_tokens=0, output_tokens=0, cost_usd=0.0)
-            return await self.inner.run(agent, prompt)
-
     # The combined checker is synthetic — it routes through combined_check.
     # The loop sees one "checker" AgentDef; our proxy intercepts and runs both.
     composite_checker = AgentDef(
@@ -107,7 +115,7 @@ async def generate_validated_mermaid(
         checker=composite_checker,
         doer_prompt=build_doer_prompt(artifact_name, artifact_text),
         checker_prompt_fn=checker_prompt_fn,
-        runner=_CompositeCheckerRunner(runner),
+        runner=_CompositeCheckerRunner(inner=runner, combined_check=combined_check),
         hil_sink=hil_sink,
         stage_name=stage_name,
     )
