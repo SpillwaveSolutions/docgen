@@ -43,7 +43,12 @@ class Config(BaseModel):
 
 
 def load_config(path: Path | None) -> Config:
-    """Load config from TOML. Returns defaults if path is None."""
+    """Load config from TOML. Returns defaults if path is None.
+
+    Defaults live exclusively on the ``Config`` model. We forward only the keys
+    the user actually supplied so pydantic fills the rest — no risk of the
+    ``.get(key, default)`` and the model declaration drifting apart.
+    """
     if path is None:
         return Config()
     if not path.exists():
@@ -57,19 +62,24 @@ def load_config(path: Path | None) -> Config:
     out = raw.get("output", {})
     models = raw.get("models", {})
 
-    return Config(
-        max_budget_usd=pipe.get("max_budget_usd", 5.00),
-        parallelism=pipe.get("parallelism", 3),
-        resume=pipe.get("resume", True),
-        skip_stages=stages.get("skip", []),
-        only_stages=stages.get("only", []),
-        include_languages=langs.get("include", Config().include_languages),
-        exclude_paths=langs.get("exclude_paths", Config().exclude_paths),
-        perplexity_mcp=mcp.get("perplexity", True),
-        context7_mcp=mcp.get("context7", True),
-        agent_brain_mcp=mcp.get("agent_brain", False),
-        output_dir=out.get("dir", "docs/design"),
-        diagram_format=out.get("diagram_format", "mermaid"),
-        doer_model=models.get("doer", "claude-sonnet-4-6"),
-        checker_model=models.get("checker", "claude-sonnet-4-6"),
-    )
+    # Map each TOML key onto its Config field name, skipping anything the
+    # user didn't set. Anything not present here falls back to the model
+    # default automatically.
+    candidate_fields: dict[str, object] = {
+        "max_budget_usd": pipe.get("max_budget_usd"),
+        "parallelism": pipe.get("parallelism"),
+        "resume": pipe.get("resume"),
+        "skip_stages": stages.get("skip"),
+        "only_stages": stages.get("only"),
+        "include_languages": langs.get("include"),
+        "exclude_paths": langs.get("exclude_paths"),
+        "perplexity_mcp": mcp.get("perplexity"),
+        "context7_mcp": mcp.get("context7"),
+        "agent_brain_mcp": mcp.get("agent_brain"),
+        "output_dir": out.get("dir"),
+        "diagram_format": out.get("diagram_format"),
+        "doer_model": models.get("doer"),
+        "checker_model": models.get("checker"),
+    }
+    overrides = {k: v for k, v in candidate_fields.items() if v is not None}
+    return Config(**overrides)

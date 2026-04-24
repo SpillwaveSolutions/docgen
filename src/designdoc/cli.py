@@ -16,6 +16,7 @@ from typing import Annotated
 
 import anyio
 import typer
+from pydantic import ValidationError
 
 from designdoc.budget import BUDGET_FILENAME, CostAccumulator
 from designdoc.config import load_config
@@ -136,21 +137,17 @@ def generate(
         raise typer.Exit(code=2)
 
     # Validate config surface early so bad diagram_format etc fail fast
-    # rather than at the first stage that would care.
+    # rather than at the first stage that would care. ValidationError is a
+    # ValueError subclass but caught explicitly first so the message stays
+    # clear if the broader ValueError clause ever needs to diverge.
     try:
         load_config(config)
+    except ValidationError as e:
+        typer.echo(f"invalid config: {e}", err=True)
+        raise typer.Exit(code=2) from e
     except (ValueError, TypeError) as e:
         typer.echo(f"invalid config: {e}", err=True)
         raise typer.Exit(code=2) from e
-    except Exception as e:
-        # Pydantic ValidationError is a ValueError subclass but surfaces as
-        # its own type; catch and map to exit 2 here.
-        from pydantic import ValidationError
-
-        if isinstance(e, ValidationError):
-            typer.echo(f"invalid config: {e}", err=True)
-            raise typer.Exit(code=2) from e
-        raise
 
     try:
         anyio.run(_run_orchestrator, repo_p, output, budget, skip_set, config, parallelism)

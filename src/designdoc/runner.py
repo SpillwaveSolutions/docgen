@@ -35,12 +35,23 @@ class RunResult:
     cost_usd: float
 
 
-class _SDKProtocol(Protocol):
+class SDKProtocol(Protocol):
     async def query(self, *, prompt: str, options: dict) -> dict: ...
 
 
+class RunnerProtocol(Protocol):
+    """Public surface every doer/checker loop expects from a runner.
+
+    `ClaudeSDKRunner` implements this; tests inject fakes that conform.
+    Loop modules type-hint against this Protocol rather than `Any` so the
+    runner contract is checkable.
+    """
+
+    async def run(self, agent: AgentDef, prompt: str) -> RunResult: ...
+
+
 class ClaudeSDKRunner:
-    def __init__(self, budget: CostAccumulator, sdk: _SDKProtocol | None = None):
+    def __init__(self, budget: CostAccumulator, sdk: SDKProtocol | None = None):
         self.budget = budget
         self.sdk = sdk if sdk is not None else _DefaultSDK()
 
