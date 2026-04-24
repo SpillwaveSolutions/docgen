@@ -488,3 +488,73 @@ async def test_state_param_optional_preserves_backward_compat(tmp_path):
         hil_sink=[],
     )
     assert result.status == "pass"
+
+
+# Invariant 2 guard (no self-grading): the checker must NEVER see content from
+# the doer's prior attempts beyond the current draft text. The retry prompt may
+# include "previous output (for reference)" for the DOER, but the CHECKER's
+# prompt always derives only from `current_text` (the doer's latest output).
+# This test locks that contract in at the type level.
+
+
+@pytest.mark.anyio
+async def test_invariant_2_checker_never_sees_prior_attempts() -> None:
+    """The checker prompt must derive ONLY from the current draft, never from
+    prior-attempt content or the doer's scratchpad. Regression guard for
+    Invariant 2 (no self-grading) per CLAUDE.md.
+    """
+    # Three attempts: doer produces draft-1 then draft-2 then draft-3.
+    # Checker rejects the first two with distinct issue text we can detect.
+    runner = ScriptedRunner(
+        {
+            "doer": ["DRAFT-ONE", "DRAFT-TWO", "DRAFT-THREE"],
+            "checker": [
+                _fail_json(1, fix="objection-A"),
+                _fail_json(2, fix="objection-B"),
+                '{"status":"pass","summary":"ok"}',
+            ],
+        }
+    )
+    doer = AgentDef(name="doer", system_prompt="DOER-SYS-PROMPT", model="m")
+    checker = AgentDef(name="checker", system_prompt="CHECKER-SYS-PROMPT", model="m")
+
+    await doer_checker_loop(
+        artifact_id="x",
+        doer=doer,
+        checker=checker,
+        # Pass the draft straight through — the simplest possible checker_prompt_fn.
+        # If a future refactor were to start including doer prompts/scratchpad here,
+        # the assertions below would catch it.
+        checker_prompt_fn=lambda d: d,
+        doer_prompt="ORIGINAL-TASK",
+        runner=runner,
+        hil_sink=[],
+    )
+
+    # Filter for checker-only invocations.
+    checker_calls = [(name, prompt) for (name, prompt) in runner.calls if name == "checker"]
+    assert len(checker_calls) == 3, "expected three checker invocations across the loop"
+
+    for attempt_idx, (_, prompt) in enumerate(checker_calls, start=1):
+        # Doer's system prompt must never leak into the checker.
+        assert "DOER-SYS-PROMPT" not in prompt, (
+            f"checker attempt {attempt_idx} saw doer system prompt — invariant 2 violated"
+        )
+        # Doer's original task prompt must never leak into the checker.
+        assert "ORIGINAL-TASK" not in prompt, (
+            f"checker attempt {attempt_idx} saw original doer prompt — invariant 2 violated"
+        )
+        # Prior checker objections must never leak into a later checker call.
+        if attempt_idx >= 2:
+            assert "objection-A" not in prompt, (
+                f"checker attempt {attempt_idx} saw attempt-1 objection — invariant 2 violated"
+            )
+        if attempt_idx >= 3:
+            assert "objection-B" not in prompt, (
+                f"checker attempt {attempt_idx} saw attempt-2 objection — invariant 2 violated"
+            )
+
+    # Each checker call gets exactly the doer's draft for that attempt — nothing else.
+    assert checker_calls[0][1] == "DRAFT-ONE"
+    assert checker_calls[1][1] == "DRAFT-TWO"
+    assert checker_calls[2][1] == "DRAFT-THREE"
