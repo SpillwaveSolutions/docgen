@@ -54,19 +54,19 @@ Issue # column is back-filled in a separate PR after issue creation.
 
 | Issue | Status | Closed by |
 |---|---|---|
-| [#6](https://github.com/SpillwaveSolutions/docgen/issues/6)   | open | — |
-| [#7](https://github.com/SpillwaveSolutions/docgen/issues/7)   | open | — |
-| [#8](https://github.com/SpillwaveSolutions/docgen/issues/8)   | open | — |
-| [#9](https://github.com/SpillwaveSolutions/docgen/issues/9)   | open | — |
-| [#10](https://github.com/SpillwaveSolutions/docgen/issues/10) | open | — |
-| [#11](https://github.com/SpillwaveSolutions/docgen/issues/11) | open | — |
-| [#12](https://github.com/SpillwaveSolutions/docgen/issues/12) | open | — |
-| [#13](https://github.com/SpillwaveSolutions/docgen/issues/13) | open | — |
-| [#14](https://github.com/SpillwaveSolutions/docgen/issues/14) | open | — |
-| [#15](https://github.com/SpillwaveSolutions/docgen/issues/15) | open | — |
-| [#16](https://github.com/SpillwaveSolutions/docgen/issues/16) | open | — |
-| [#17](https://github.com/SpillwaveSolutions/docgen/issues/17) | open | — |
-| [#18](https://github.com/SpillwaveSolutions/docgen/issues/18) | open | — |
+| [#6](https://github.com/SpillwaveSolutions/docgen/issues/6)   | open   | — |
+| [#7](https://github.com/SpillwaveSolutions/docgen/issues/7)   | open   | — |
+| [#8](https://github.com/SpillwaveSolutions/docgen/issues/8)   | closed | [PR #21](https://github.com/SpillwaveSolutions/docgen/pull/21) |
+| [#9](https://github.com/SpillwaveSolutions/docgen/issues/9)   | open   | — |
+| [#10](https://github.com/SpillwaveSolutions/docgen/issues/10) | closed | [PR #23](https://github.com/SpillwaveSolutions/docgen/pull/23) |
+| [#11](https://github.com/SpillwaveSolutions/docgen/issues/11) | open   | — |
+| [#12](https://github.com/SpillwaveSolutions/docgen/issues/12) | open   | — |
+| [#13](https://github.com/SpillwaveSolutions/docgen/issues/13) | open   | — |
+| [#14](https://github.com/SpillwaveSolutions/docgen/issues/14) | open   | — |
+| [#15](https://github.com/SpillwaveSolutions/docgen/issues/15) | open   | — |
+| [#16](https://github.com/SpillwaveSolutions/docgen/issues/16) | closed | [PR #22](https://github.com/SpillwaveSolutions/docgen/pull/22) |
+| [#17](https://github.com/SpillwaveSolutions/docgen/issues/17) | open   | — |
+| [#18](https://github.com/SpillwaveSolutions/docgen/issues/18) | open   | — |
 
 When a PR lands and closes its issue, replace `open` with `closed` and fill
 in the PR number. When all 13 are closed, delete this file and the related
