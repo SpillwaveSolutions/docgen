@@ -89,6 +89,7 @@ async def generate_validated_mermaid(
                             "location": "<mermaid source>",
                             "current_text": mermaid_src[:200],
                             "suggested_fix": f"fix syntax error: {syntax.stderr[:200]}",
+                            "category": "syntax",
                         }
                     ],
                 }

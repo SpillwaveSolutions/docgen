@@ -96,3 +96,13 @@ async def test_mermaid_loop_hil_on_persistent_syntax_failure():
     )
     assert result.status == "shipped_with_hil"
     assert len(hil_sink) == 1
+
+    # Verdict's issue should carry category="syntax" — the syntax-failure path
+    # emits that field so downstream HIL captures can distinguish syntax errors
+    # from semantic ones (Issue #15 wiring).
+    from designdoc.verdict import MermaidIssue
+
+    assert len(result.verdict.issues) == 1
+    issue = result.verdict.issues[0]
+    assert isinstance(issue, MermaidIssue)
+    assert issue.category == "syntax"
