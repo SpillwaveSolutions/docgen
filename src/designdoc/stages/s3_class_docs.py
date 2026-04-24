@@ -115,6 +115,7 @@ async def run(
                 runner=runner,
                 hil_sink=state.hil_issues,
                 stage_name=STAGE_NAME,
+                state=state,
             )
             content = result.text
             if result.status == "shipped_with_hil":

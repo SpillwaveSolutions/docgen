@@ -118,6 +118,7 @@ async def run(
                 runner=runner,
                 hil_sink=state.hil_issues,
                 stage_name=STAGE_NAME,
+                state=state,
             )
             row = _parse_report(result.text, dep, disputed=result.status != "pass")
 

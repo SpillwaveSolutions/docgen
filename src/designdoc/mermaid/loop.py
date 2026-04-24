@@ -22,6 +22,7 @@ from designdoc.agents.mermaid_generator import (
 from designdoc.loop import ArtifactResult, doer_checker_loop
 from designdoc.mermaid.mmdc import validate as mmdc_validate
 from designdoc.runner import AgentDef, RunnerProtocol, RunResult
+from designdoc.state import PipelineState
 
 FENCE_RE = re.compile(r"^```(?:mermaid)?\s*\n?|\n?```\s*$", re.MULTILINE)
 
@@ -61,6 +62,7 @@ async def generate_validated_mermaid(
     doer: AgentDef | None = None,
     validator: AgentDef | None = None,
     stage_name: str = "mermaid",
+    state: PipelineState | None = None,
 ) -> ArtifactResult:
     """Generate a mermaid diagram for `artifact_text` and validate it.
 
@@ -117,5 +119,6 @@ async def generate_validated_mermaid(
         checker_prompt_fn=checker_prompt_fn,
         runner=_CompositeCheckerRunner(inner=runner, combined_check=combined_check),
         hil_sink=hil_sink,
+        state=state,
         stage_name=stage_name,
     )
