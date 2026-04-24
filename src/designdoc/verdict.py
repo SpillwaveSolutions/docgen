@@ -23,6 +23,11 @@ SYNTH_FAIL_PREFIX = "checker output unparseable: "
 tooling (INV-001 debug capture) uses this to distinguish parse failures
 from genuine checker objections without re-parsing raw output."""
 
+MERMAID_ARTIFACT_PREFIX = "mermaid:"
+"""Artifact-id prefix for mermaid diagrams. When a CheckerVerdict's
+artifact_id starts with this prefix, parse_verdict coerces its issues
+into MermaidIssue so the extra category/node_or_edge fields survive."""
+
 
 class CheckerIssue(BaseModel):
     severity: Severity
@@ -42,7 +47,10 @@ class CheckerVerdict(BaseModel):
     attempt: int
     artifact_id: str
     summary: str = ""
-    issues: list[CheckerIssue] = Field(default_factory=list)
+    # Union-typed so mermaid issues (which carry extra category/node_or_edge
+    # fields) survive pydantic validation intact when the artifact is a
+    # mermaid diagram. CheckerIssue is the fallback for non-mermaid issues.
+    issues: list[MermaidIssue | CheckerIssue] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _consistency(self) -> CheckerVerdict:

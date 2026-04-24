@@ -10,6 +10,8 @@ synthetic fail verdict (Gen 3 rule 4: fail loud, not quiet).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -184,3 +186,56 @@ def test_mermaid_issue_category():
     )
     assert m.category == "hallucinated_node"
     assert m.node_or_edge == "B"
+
+
+def test_parse_verdict_preserves_mermaid_issue_fields():
+    """When artifact_id is a mermaid diagram, issues carry category/node_or_edge
+    fields and parse_verdict must preserve them — pydantic union resolution
+    routes dicts with `category` keys to MermaidIssue rather than CheckerIssue."""
+    raw = json.dumps(
+        {
+            "status": "fail",
+            "summary": "semantic check failed",
+            "issues": [
+                {
+                    "severity": "major",
+                    "location": "line 7",
+                    "current_text": "A-->Z",
+                    "suggested_fix": "remove Z; not in source artifact",
+                    "category": "hallucinated_node",
+                    "node_or_edge": "Z",
+                }
+            ],
+        }
+    )
+    v = parse_verdict(raw, attempt=1, artifact_id="mermaid:Foo")
+    assert v.status == "fail"
+    assert len(v.issues) == 1
+    issue = v.issues[0]
+    assert isinstance(issue, MermaidIssue)
+    assert issue.category == "hallucinated_node"
+    assert issue.node_or_edge == "Z"
+
+
+def test_parse_verdict_non_mermaid_issue_unaffected():
+    """Issues without `category` field still parse as plain CheckerIssue —
+    union fallback works in both directions."""
+    raw = json.dumps(
+        {
+            "status": "fail",
+            "summary": "doc failed",
+            "issues": [
+                {
+                    "severity": "major",
+                    "location": "intro",
+                    "current_text": "lorem",
+                    "suggested_fix": "rewrite",
+                }
+            ],
+        }
+    )
+    v = parse_verdict(raw, attempt=1, artifact_id="path/foo.py::Bar")
+    assert v.status == "fail"
+    assert isinstance(v.issues[0], CheckerIssue)
+    # Not a MermaidIssue (lacks category), so subclass check is False.
+    assert not isinstance(v.issues[0], MermaidIssue)
