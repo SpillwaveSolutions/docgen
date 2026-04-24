@@ -95,9 +95,6 @@ is a record of merged PRs, not in-progress work.
   closeable; "task ci green on test X" is.
 - **Labels** follow `.github/ISSUE_TEMPLATE/`: `bug`, `enhancement`, `investigation`.
 
-**Active follow-up work:** see `plans/2026_04_22_ultrareview_followup.md`
-(issues #6-#18, opened from the 2026-04-22 ULTRAREVIEW pass).
-
 ## Specs live under `./plans/`
 
 | Path | Contents |
