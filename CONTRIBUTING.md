@@ -132,3 +132,58 @@ task dogfood  # live pipeline against tests/fixtures/tiny_repo
 ```
 
 See `README.md` for user-facing usage.
+
+## Releasing
+
+We use **PyPI Trusted Publishing** (OIDC) — no long-lived API token sits in
+GitHub secrets. The release workflow lives at `.github/workflows/release.yml`.
+
+### One-time PyPI side setup
+
+Before the first release can publish successfully, register a Trusted Publisher
+on PyPI:
+
+1. Sign in at <https://pypi.org/> with the account that will own the project.
+2. Go to **Account settings → Publishing → Add a new pending publisher**.
+3. Fill in:
+   - **PyPI Project Name:** `designdoc`
+   - **Owner:** `SpillwaveSolutions`
+   - **Repository name:** `docgen`
+   - **Workflow name:** `release.yml`
+   - **Environment name:** `pypi`
+4. Save. The first successful publish from the workflow will claim the project name.
+
+Also create a GitHub Actions environment named `pypi` (Repo → Settings →
+Environments → New environment → `pypi`). The workflow's
+`build-and-publish` job is gated on this environment so reviewers can require
+manual approval before publishing if desired.
+
+### Cutting a release
+
+```bash
+# 1. Bump the version in pyproject.toml (e.g. 1.2.0 → 1.2.1).
+#    The release workflow refuses to publish if the tag and pyproject version disagree.
+$EDITOR pyproject.toml
+
+# 2. Update CHANGELOG.md with the new version section.
+
+# 3. Commit and merge via PR (no direct main commits — see PR Workflow above).
+
+# 4. After merge, tag the release commit on main:
+git checkout main
+git pull --prune
+git tag -a v1.2.1 -m "v1.2.1"
+git push origin v1.2.1
+```
+
+Tag push triggers `.github/workflows/release.yml`, which:
+
+1. Reruns the CI gate (lint + tests).
+2. Verifies the tag matches `pyproject.toml`'s `version`.
+3. Builds wheel + sdist with `uv build`.
+4. Publishes to PyPI via OIDC Trusted Publishing.
+5. Creates a GitHub Release with auto-generated notes and the built artifacts attached.
+
+If publishing fails partway, fix the cause and re-run the workflow via
+`Actions → release → Run workflow`, supplying the existing tag. The
+`skip-existing: true` flag on the publish step makes re-runs idempotent.
