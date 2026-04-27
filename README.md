@@ -4,9 +4,33 @@ Harness-engineered codebase documentation pipeline.
 
 Walks any repo bottom-up and emits a validated `docs/design/` tree: per-class docs, package rollups, mermaid diagrams (syntax + semantics validated), a system-design rollup, a tech-debt ledger, and a YAML file of unresolved human-in-the-loop disputes.
 
-## Quickstart
+## Install
+
+### As a CLI
+
+Install the `designdoc` command into a uv-managed tool environment:
 
 ```bash
+uv tool install git+https://github.com/SpillwaveSolutions/docgen
+designdoc generate --repo /path/to/your/repo --budget 5.00
+```
+
+(Alternatively, `pipx install git+https://github.com/SpillwaveSolutions/docgen` if you prefer pipx. Once published to PyPI, `pip install designdoc` will also work.)
+
+### As a Claude Code plugin
+
+```bash
+claude plugin marketplace add SpillwaveSolutions/docgen
+claude plugin install designdoc
+```
+
+Adds a `/designdoc` slash command (`generate | resume | status | resolve`).
+
+### From a clone (development)
+
+```bash
+git clone https://github.com/SpillwaveSolutions/docgen
+cd docgen
 uv sync
 uv run designdoc generate --repo /path/to/your/repo --budget 5.00
 ```
@@ -104,10 +128,11 @@ plans/             # implementation plan
 
 ## Claude Code plugin
 
-A `/designdoc` slash command wrapper lives in `plugins/designdoc/` (to be built in Task 21):
+A `/designdoc` slash command wrapper lives in `plugins/designdoc/`. Install via the marketplace path described in [Install](#as-a-claude-code-plugin), or from a local clone:
 
 ```bash
-cp -r plugins/designdoc ~/.claude/plugins/designdoc
+claude plugin marketplace add /path/to/your/clone/of/docgen
+claude plugin install designdoc
 ```
 
 Commands: `/designdoc generate | resume | status | resolve`.
