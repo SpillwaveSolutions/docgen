@@ -17,6 +17,7 @@ _HASH_CHUNK = 64 * 1024
 
 DEFAULT_EXCLUDES: frozenset[str] = frozenset(
     {
+        # Build outputs and dependency caches.
         "node_modules",
         ".venv",
         "venv",
@@ -28,6 +29,14 @@ DEFAULT_EXCLUDES: frozenset[str] = frozenset(
         ".pytest_cache",
         ".ruff_cache",
         ".mypy_cache",
+        # Modern dev-tooling configs that are commonly committed but are not
+        # the user's product code. Indexing them burns LLM budget on samples
+        # and plugin scaffolds. Issue #42.
+        ".claude",
+        ".opencode",
+        ".devcontainer",
+        ".idea",
+        ".vscode",
     }
 )
 
