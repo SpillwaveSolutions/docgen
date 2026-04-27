@@ -82,6 +82,33 @@ def test_default_excludes_list_is_documented():
     assert "target" in DEFAULT_EXCLUDES
 
 
+def test_default_excludes_skips_committed_tooling_dirs():
+    """Modern dev workflows commit local tooling configs (.claude, .opencode,
+    .devcontainer, .idea, .vscode). Those are never the user's product code,
+    so we exclude them by default to avoid burning LLM budget on samples and
+    plugin scaffolds. Issue #42.
+    """
+    for d in (".claude", ".opencode", ".devcontainer", ".idea", ".vscode"):
+        assert d in DEFAULT_EXCLUDES, f"{d} must be in DEFAULT_EXCLUDES"
+
+
+def test_excludes_dot_claude_skill_samples(tmp_path: Path):
+    """Regression: agent-brain eval indexed .claude/skills/.../sample-cli/*.py
+    files (Rick's local skill samples). Those got expensive doer/checker
+    treatment despite being unrelated to the codebase under documentation.
+    """
+    _mk(
+        tmp_path,
+        "src/main.py",
+        ".claude/skills/mastering-python-skill/sample-cli/code_validator.py",
+        ".opencode/agent.py",
+    )
+    report = discover(tmp_path)
+    assert report.tree == [Path("src/main.py")]
+    assert all(".claude" not in p.parts for p in report.tree)
+    assert all(".opencode" not in p.parts for p in report.tree)
+
+
 def test_unknown_extensions_ignored(tmp_path: Path):
     _mk(tmp_path, "a.py", "image.png", "data.bin", "README.md")
     report = discover(tmp_path)

@@ -28,6 +28,11 @@ docs/design/.designdoc-budget.json
 # runs; never committed because they change every run with real LLM output.
 tests/fixtures/*/docs/design/
 
+# Local eval runs against external repos — generated docs, never committed.
+docs/agent-brain/
+docs/agent-memory/
+docs/eval/
+
 # IDE
 .idea/
 .vscode/
