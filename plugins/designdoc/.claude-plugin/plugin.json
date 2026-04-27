@@ -1,0 +1,14 @@
+{
+  "name": "designdoc",
+  "version": "1.2.0",
+  "description": "Generate validated design documentation for any codebase. Walks a repo bottom-up and emits a docs/design/ tree: per-class docs, package rollups, mermaid diagrams (syntax + semantic validated), tech-debt ledger, system design, and unresolved HIL disputes YAML.",
+  "keywords": ["documentation", "design-docs", "codebase-analysis", "mermaid", "tech-debt", "spillwave"],
+  "author": {
+    "name": "Rick Hightower",
+    "url": "https://github.com/SpillwaveSolutions"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/SpillwaveSolutions/docgen",
+  "repository": "https://github.com/SpillwaveSolutions/docgen",
+  "commands": ["../commands/designdoc.md"]
+}

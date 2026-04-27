@@ -1,0 +1,20 @@
+{
+  "name": "designdoc",
+  "description": "Spillwave designdoc — harness-engineered codebase documentation pipeline as a Claude Code plugin",
+  "owner": {
+    "name": "Spillwave Solutions",
+    "url": "https://github.com/SpillwaveSolutions"
+  },
+  "plugins": [
+    {
+      "name": "designdoc",
+      "description": "Walks a repo and emits a validated docs/design/ tree (class docs, package rollups, mermaid diagrams, tech-debt ledger). Slash command: /designdoc [generate|resume|status|resolve].",
+      "version": "1.2.0",
+      "source": "./plugins/designdoc",
+      "author": {
+        "name": "Rick Hightower",
+        "url": "https://github.com/SpillwaveSolutions"
+      }
+    }
+  ]
+}
