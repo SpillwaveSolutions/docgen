@@ -80,6 +80,60 @@ def _strip_code_fence(raw: str) -> str:
     return m.group(1) if m else raw
 
 
+def extract_json_object(raw: str) -> str:
+    """Extract a JSON object from LLM-flavored output.
+
+    Issue #41: Sonnet emits structured JSON wrapped in code fences, with prose
+    preamble ("Here is the analysis:"), and/or with trailing commentary,
+    despite system prompts forbidding all of these. Pydantic's
+    ``model_validate_json`` rejects every such wrapper, driving Stage 2's
+    94% retry rate on real-codebase runs.
+
+    This is a defensive, non-destructive extractor:
+
+    1. Strip an outer code fence if the entire input is fenced (delegates to
+       ``_strip_code_fence``).
+    2. If the result is already a balanced ``{...}`` object (with optional
+       surrounding whitespace), return it stripped.
+    3. Otherwise scan for the first balanced ``{...}`` block, respecting
+       string literals so braces inside ``"..."`` don't confuse the depth
+       counter.
+    4. If no balanced object is found, return the original input unchanged
+       so the downstream parser raises its native error.
+
+    Never invents content. Pure win — clean inputs are unchanged.
+    """
+    text = _strip_code_fence(raw)
+    start = text.find("{")
+    if start == -1:
+        return raw
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == "\\" and in_string:
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    return raw
+
+
 def parse_verdict(raw: str, *, attempt: int, artifact_id: str) -> CheckerVerdict:
     """Parse a checker's raw output into a verdict.
 

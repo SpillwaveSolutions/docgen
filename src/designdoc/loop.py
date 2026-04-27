@@ -32,6 +32,7 @@ from designdoc.verdict import (
     SYNTH_FAIL_PREFIX,
     CheckerIssue,
     CheckerVerdict,
+    extract_json_object,
     parse_verdict,
 )
 
@@ -278,7 +279,10 @@ async def doer_schema_loop(
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            schema_model.model_validate_json(current_text)
+            # Issue #41: doer LLMs reliably wrap JSON in code fences and add
+            # prose preamble despite system-prompt rules. extract_json_object
+            # is non-destructive — clean input passes through unchanged.
+            schema_model.model_validate_json(extract_json_object(current_text))
             verdict = CheckerVerdict(
                 status="pass", attempt=attempt, artifact_id=artifact_id, summary="schema ok"
             )

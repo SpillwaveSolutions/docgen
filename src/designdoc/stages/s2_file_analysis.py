@@ -23,6 +23,7 @@ from designdoc.loop import doer_schema_loop
 from designdoc.stages._common import current_source_hashes, unwrap_taskgroup_exception
 from designdoc.stages.s1_index import OUTPUT_FILENAME as STAGE1_FILENAME
 from designdoc.state import PipelineState, StageStatus, state_lock
+from designdoc.verdict import extract_json_object
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +164,10 @@ def _parse_or_placeholder(text: str, path: str) -> dict:
         "notes": "unresolved",
     }
     try:
-        return FileSummary.model_validate_json(text).model_dump()
+        # Issue #41: same tolerant pre-parse as doer_schema_loop. Without this
+        # a successful loop ending on attempt N>1 with fenced/preambled output
+        # would still hit the placeholder path here.
+        return FileSummary.model_validate_json(extract_json_object(text)).model_dump()
     except ValidationError:
         # Expected: doer output didn't match schema — placeholder is intended.
         return placeholder
