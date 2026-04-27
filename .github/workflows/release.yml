@@ -1,0 +1,120 @@
+name: release
+
+# Triggered ONLY on version tag push (e.g. `git tag v1.2.1 && git push origin v1.2.1`).
+# - Reruns the CI gate (lint + tests) so we never publish a wheel that wouldn't pass main.
+# - Guards that the git tag matches `version = "..."` in pyproject.toml.
+# - Builds wheel + sdist with `uv build`.
+# - Publishes to PyPI via Trusted Publishing (OIDC, no long-lived token in repo secrets).
+# - Creates a GitHub Release with auto-generated notes.
+#
+# One-time setup required on the PyPI side (see CONTRIBUTING.md → "Releasing"):
+#   PyPI → Account settings → Publishing → Add a new pending publisher:
+#     PyPI Project Name: designdoc
+#     Owner:             SpillwaveSolutions
+#     Repository name:   docgen
+#     Workflow name:     release.yml
+#     Environment name:  pypi
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to release (must already exist, e.g. v1.2.1). Used for manual reruns.'
+        required: true
+
+permissions:
+  contents: write    # for GitHub Release creation
+  id-token: write    # for PyPI Trusted Publishing OIDC
+
+jobs:
+  ci:
+    # Mirror of test.yml — keeps the CI-parity rule honest. If someone changes
+    # test.yml, this rerun catches the divergence before the wheel ships.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Set up Node (for @mermaid-js/mermaid-cli)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Warm mmdc cache
+        run: npx --yes @mermaid-js/mermaid-cli --version
+        timeout-minutes: 5
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff check)
+        run: uv run ruff check src tests
+
+      - name: Format check (ruff format --check)
+        run: uv run ruff format --check src tests
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -v
+
+      - name: Integration tests (no API)
+        run: uv run pytest tests/integration -m "not requires_api" -v
+
+  build-and-publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/designdoc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          # workflow_dispatch passes the tag as input; tag push uses GITHUB_REF_NAME.
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG_VERSION="${TAG#v}"
+          PYPROJECT_VERSION=$(grep -E '^version = ' pyproject.toml | head -1 | sed -E 's/version = "([^"]+)"/\1/')
+          echo "tag=$TAG_VERSION pyproject=$PYPROJECT_VERSION"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::tag $TAG (=> $TAG_VERSION) does not match pyproject.toml version $PYPROJECT_VERSION"
+            exit 1
+          fi
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # No `password:` — Trusted Publishing uses OIDC.
+          packages-dir: dist/
+          # Don't fail if the same version is already on PyPI; lets us re-run
+          # workflow_dispatch idempotently.
+          skip-existing: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
