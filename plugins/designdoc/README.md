@@ -4,8 +4,18 @@ Claude Code slash-command wrapper for the [designdoc](../..) CLI.
 
 ## Install
 
+Recommended (Claude Code marketplace):
+
 ```bash
-cp -r plugins/designdoc ~/.claude/plugins/designdoc
+claude plugin marketplace add SpillwaveSolutions/docgen
+claude plugin install designdoc
+```
+
+Or install from a local clone:
+
+```bash
+claude plugin marketplace add /path/to/your/clone/of/docgen
+claude plugin install designdoc
 ```
 
 Then in any Claude Code session:
@@ -19,7 +29,12 @@ Then in any Claude Code session:
 
 ## Prerequisites
 
-- `designdoc` on PATH (`uv tool install .` or `pip install .` from the repo root).
+- `designdoc` on PATH. Install from a clone with `uv tool install .`, or directly from GitHub:
+
+  ```bash
+  uv tool install git+https://github.com/SpillwaveSolutions/docgen
+  ```
+
 - `claude` CLI logged in to a Pro/Max subscription — the SDK uses this CLI
   as its transport. No `ANTHROPIC_API_KEY` needed.
 - `npx` + Node for Stage 5 mermaid validation, or use `--skip mermaid`.
