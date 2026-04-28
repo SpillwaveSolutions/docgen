@@ -152,6 +152,66 @@ async def test_runner_uses_out_of_tree_cwd(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_runner_isolates_non_mcp_agents():
+    """Issue #49: doers/checkers without MCP servers should run hermetic —
+    the SDK must NOT load user/project CLAUDE.md, output styles, or other
+    ambient config that would pollute their output (e.g. ★ Insight ─── blocks
+    inherited from the user's session output-style preference).
+
+    The SDK contract: setting_sources=[] means "isolation mode, no filesystem
+    settings." That's what we want for class_documenter and friends.
+    """
+    budget = CostAccumulator(cap_usd=1.00)
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=fake)
+    agent = AgentDef(
+        name="class-documenter",
+        system_prompt="hermetic prompt",
+        model="m",
+        allowed_tools=["Read", "Grep"],
+        # NOTE: no mcp_servers
+    )
+
+    await r.run(agent, prompt="document a class")
+
+    _, options = fake.calls[0]
+    assert "setting_sources" in options, (
+        "non-MCP agents must explicitly request isolation mode (setting_sources=[]) "
+        "rather than rely on SDK default behavior, which loads ALL settings"
+    )
+    assert options["setting_sources"] == [], (
+        "non-MCP agents must run hermetic — empty setting_sources list"
+    )
+
+
+@pytest.mark.anyio
+async def test_runner_loads_settings_for_mcp_agents():
+    """MCP-using agents (e.g. tech_debt researcher with Perplexity / Context7)
+    NEED user/project settings to discover MCP server configs declared in
+    ~/.claude.json or .mcp.json. So setting_sources stays as user+project+local
+    in that case — only the non-MCP path becomes hermetic."""
+    budget = CostAccumulator(cap_usd=1.00)
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=fake)
+    agent = AgentDef(
+        name="tech-debt-researcher",
+        system_prompt="research deps",
+        model="m",
+        allowed_tools=["Read"],
+        mcp_servers=["perplexity-ask", "context7"],
+    )
+
+    await r.run(agent, prompt="research")
+
+    _, options = fake.calls[0]
+    assert options["setting_sources"] == ["user", "project", "local"]
+
+
+@pytest.mark.anyio
 async def test_runner_budget_exceeded_propagates():
     budget = CostAccumulator(cap_usd=0.10)
     fake = FakeSDK(

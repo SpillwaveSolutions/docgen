@@ -107,6 +107,14 @@ def _build_options(agent: AgentDef, cwd: str | None = None) -> dict:
         for server in agent.mcp_servers:
             tools.append(f"mcp__{server}__*")
         extras["setting_sources"] = ["user", "project", "local"]
+    else:
+        # Issue #49: hermetic non-MCP agents. Without this, the SDK's default
+        # (setting_sources=None → load user+project+local) pulls in
+        # ~/.claude/CLAUDE.md, the target repo's CLAUDE.md, and the user's
+        # active output style — polluting class docs with `★ Insight ───` blocks
+        # and absorbing target-repo conventions into the doer's reasoning.
+        # SDK contract: setting_sources=[] means "isolation mode."
+        extras["setting_sources"] = []
     if cwd is not None:
         extras["cwd"] = cwd
 
@@ -133,7 +141,9 @@ class _DefaultSDK:
         )
 
         extra: dict = {}
-        if options.get("setting_sources"):
+        if "setting_sources" in options:
+            # Note: explicit `[]` (isolation mode for issue #49) is falsy.
+            # `if options.get(...)` would silently drop it; `in` is correct.
             extra["setting_sources"] = options["setting_sources"]
         if options.get("cwd"):
             # Issue #46: pin the SDK subprocess to the target repo so its
