@@ -86,6 +86,72 @@ async def test_runner_passes_agent_config_to_sdk():
 
 
 @pytest.mark.anyio
+async def test_runner_passes_cwd_to_sdk_options():
+    """Issue #46: when the runner is configured with a cwd, every options
+    dict passed to the SDK must contain it. This is what lets the SDK
+    subprocess Read source files in the target repo when the user invokes
+    designdoc from a different working directory.
+    """
+    budget = CostAccumulator(cap_usd=1.00)
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=fake, cwd="/tmp/some-target-repo")
+    agent = AgentDef(name="t", system_prompt="", model="m")
+
+    await r.run(agent, prompt="hi")
+
+    assert len(fake.calls) == 1
+    _, options = fake.calls[0]
+    assert options["cwd"] == "/tmp/some-target-repo"
+
+
+@pytest.mark.anyio
+async def test_runner_omits_cwd_when_none():
+    """Backward-compat: if no cwd is supplied, the options dict must not
+    include a cwd key (the SDK falls back to its default behavior)."""
+    budget = CostAccumulator(cap_usd=1.00)
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=fake)  # no cwd
+    agent = AgentDef(name="t", system_prompt="", model="m")
+
+    await r.run(agent, prompt="hi")
+
+    _, options = fake.calls[0]
+    assert "cwd" not in options
+
+
+@pytest.mark.anyio
+async def test_runner_uses_out_of_tree_cwd(tmp_path):
+    """Issue #46 regression: pytest's tmp_path is outside the docgen tree
+    by design. This is the closest CI-level approximation of the
+    realistic case 'user runs designdoc from /Users/me/work, target repo
+    is /Users/me/projects/foo' that surfaced the bug in the agent-brain
+    eval. The captured cwd must match the target path string-for-string.
+    """
+    target = tmp_path / "target_repo"
+    target.mkdir()
+    (target / "main.py").write_text("class X:\n    pass\n")
+
+    budget = CostAccumulator(cap_usd=1.00)
+    fake = FakeSDK(
+        [{"text": "", "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}}]
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=fake, cwd=str(target))
+    agent = AgentDef(name="class-documenter", system_prompt="", model="m", allowed_tools=["Read"])
+
+    await r.run(agent, prompt="document the class in main.py")
+
+    _, options = fake.calls[0]
+    assert options["cwd"] == str(target)
+    assert "Read" in options["allowed_tools"], (
+        "Read must be enabled — issue #46 is about Read access in the target repo"
+    )
+
+
+@pytest.mark.anyio
 async def test_runner_budget_exceeded_propagates():
     budget = CostAccumulator(cap_usd=0.10)
     fake = FakeSDK(
