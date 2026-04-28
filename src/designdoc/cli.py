@@ -104,7 +104,10 @@ async def _run_orchestrator(
     if budget_usd is not None:
         state.halted_on_budget = False
     budget = CostAccumulator.load_or_new(cap_usd=cap_usd, path=output / BUDGET_FILENAME)
-    runner = ClaudeSDKRunner(budget=budget)
+    # Issue #46: pin the SDK subprocess to the target repo so its Read/Grep
+    # tools resolve paths against the source we're documenting, not against
+    # wherever the user happened to invoke `designdoc` from.
+    runner = ClaudeSDKRunner(budget=budget, cwd=str(repo))
     orchestrator = Orchestrator(
         state=state, runner=runner, budget=budget, config=config, skip_stages=skip
     )

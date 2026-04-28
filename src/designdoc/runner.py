@@ -51,12 +51,23 @@ class RunnerProtocol(Protocol):
 
 
 class ClaudeSDKRunner:
-    def __init__(self, budget: CostAccumulator, sdk: SDKProtocol | None = None):
+    def __init__(
+        self,
+        budget: CostAccumulator,
+        sdk: SDKProtocol | None = None,
+        cwd: str | None = None,
+    ):
+        """cwd: working directory to expose to the SDK subprocess. When set,
+        every options dict carries it through to ClaudeAgentOptions.cwd, so
+        the SDK's Read/Grep tools resolve relative paths against the **target
+        repo** rather than wherever the user invoked the CLI from. Issue #46.
+        """
         self.budget = budget
         self.sdk = sdk if sdk is not None else _DefaultSDK()
+        self.cwd = cwd
 
     async def run(self, agent: AgentDef, prompt: str) -> RunResult:
-        options = _build_options(agent)
+        options = _build_options(agent, cwd=self.cwd)
         resp = await self.sdk.query(prompt=prompt, options=options)
         usage = resp.get("usage", {}) or {}
         rec = UsageRecord(
@@ -74,7 +85,7 @@ class ClaudeSDKRunner:
         )
 
 
-def _build_options(agent: AgentDef) -> dict:
+def _build_options(agent: AgentDef, cwd: str | None = None) -> dict:
     """Translate AgentDef into the options dict passed to the SDK.
 
     When agent.mcp_servers is non-empty:
@@ -83,6 +94,12 @@ def _build_options(agent: AgentDef) -> dict:
     - Adds setting_sources=["user", "project", "local"] so MCP server
       configs declared in ~/.claude.json, .mcp.json, or project local
       flow through without us having to hand-wire each server's transport.
+
+    When cwd is provided (issue #46), it is included in the options dict
+    so the SDK subprocess uses it as its working directory. Without this,
+    the SDK's Read/Grep tools resolve paths relative to wherever the user
+    invoked the CLI from — and class_documenter cannot read source files
+    in the target repo when target_repo != cli_invocation_cwd.
     """
     tools = list(agent.allowed_tools)
     extras: dict = {}
@@ -90,6 +107,8 @@ def _build_options(agent: AgentDef) -> dict:
         for server in agent.mcp_servers:
             tools.append(f"mcp__{server}__*")
         extras["setting_sources"] = ["user", "project", "local"]
+    if cwd is not None:
+        extras["cwd"] = cwd
 
     return {
         "system_prompt": agent.system_prompt,
@@ -116,6 +135,10 @@ class _DefaultSDK:
         extra: dict = {}
         if options.get("setting_sources"):
             extra["setting_sources"] = options["setting_sources"]
+        if options.get("cwd"):
+            # Issue #46: pin the SDK subprocess to the target repo so its
+            # Read/Grep tools see the source files we're documenting.
+            extra["cwd"] = options["cwd"]
         # MCP server dict is built from inherited settings — we don't pass
         # explicit configs here; agent names flow via allowed_tools patterns.
         opts = ClaudeAgentOptions(

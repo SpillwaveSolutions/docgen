@@ -33,6 +33,10 @@ docs/agent-brain/
 docs/agent-memory/
 docs/eval/
 
+# Stray local-tool scratch dirs that occasionally land in the repo root.
+tmp_abcli/
+tmp_*/
+
 # IDE
 .idea/
 .vscode/
