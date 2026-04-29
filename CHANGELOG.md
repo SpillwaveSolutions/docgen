@@ -4,6 +4,64 @@ All notable changes to **designdoc** are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-04-29
+
+Eval-driven patch release. Four bugs surfaced by dogfooding designdoc against
+its own repo are fixed; the ULTRAREVIEW follow-up hardening pass also lands.
+
+### Fixed
+
+- **Hermetic mode for non-MCP agents (#49).** `ClaudeSDKRunner` now passes
+  `setting_sources=[]` when an agent has no MCP servers, blocking inheritance
+  of the user's `~/.claude/CLAUDE.md`, output-style instructions, and
+  project-level settings into doer/checker subprocesses. Symptom in eval:
+  Stage 3 class docs shipped with prefatory `★ Insight ───` blocks before
+  `## Purpose` because the user's "explanatory" output style leaked into the
+  doer. After fix: 4 → 0 Insight blocks on the same tiny_repo run.
+- **Stage 3 doer can read source files when `target_repo ≠ cwd` (#46).** The
+  SDK subprocess now inherits `cwd=target_repo` so Read calls against
+  `src/foo/bar.py` resolve correctly. Previously, running `designdoc generate
+  --target /other/repo` from a different working directory caused Stage 3 to
+  fail with "file not found" on every class doc.
+- **Tolerant JSON extraction for Stage 2 file-analyzer (#41).** Sonnet
+  occasionally wraps the schema-validated JSON in markdown code fences or
+  adds a "Here is the analysis:" preamble. The doer-side parse path now
+  strips fences and extracts the first balanced JSON object before pydantic
+  validation, dropping the schema-retry rate from ~94% to <5% on real-repo
+  eval.
+- **`DEFAULT_EXCLUDES` covers agent / IDE config dirs (#42).** Stage 0 now
+  excludes `.claude/`, `.opencode/`, `.devcontainer/`, `.idea/`, and
+  `.vscode/` by default. Previously these dirs polluted the language
+  manifest with agent prompts and IDE config files, wasting Stage 1 budget.
+
+### Hardened (ULTRAREVIEW follow-up — issues #6-#18)
+
+- `state.save()` is now serialized by a module-level `asyncio.Lock` across
+  all 6 call sites (#7).
+- `BudgetExceededError` mid-stage now cancels sibling tasks via
+  `asyncio.TaskGroup` instead of letting `asyncio.gather` run them to
+  completion (#6).
+- Stage 7 writes the artifact_index checkpoint after a successful loop,
+  matching stages 2-6 (#9).
+- `total_retries` split into `doer_content_retries` and
+  `checker_parse_retries` for clearer budget telemetry (#13).
+- Mermaid checker output now flows through a typed `MermaidIssue` instead of
+  a free-form string (#15).
+- Guard tests added for the 3-attempt cap, fragile glue, and the
+  `MAX_ATTEMPTS`-not-in-config invariant (#17).
+- Silent-failure cleanup pass (#18).
+- `_ship_with_hil` and `sha1_keyed` extracted as shared helpers (4 refactor
+  PRs, no behavior change).
+
+### Added
+
+- **`chore(ci): publish-on-tag PyPI release workflow.**` Tagging
+  `v<MAJOR>.<MINOR>.<PATCH>` triggers `.github/workflows/release.yml` to
+  build and publish to PyPI via Trusted Publisher OIDC (no API token).
+- **Plugin marketplace metadata.** `.claude-plugin/plugin.json` and
+  `marketplace.json` so designdoc installs cleanly from the in-repo
+  marketplace.
+
 ## [1.2.0] - 2026-04-21
 
 Within-stage crash-resume. A pipeline killed mid-Stage-N no longer loses
