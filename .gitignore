@@ -28,10 +28,10 @@ docs/design/.designdoc-budget.json
 # runs; never committed because they change every run with real LLM output.
 tests/fixtures/*/docs/design/
 
-# Local eval runs against external repos — generated docs, never committed.
-docs/agent-brain/
-docs/agent-memory/
-docs/eval/
+# Generated doc trees (designdoc output) — every target under docs/gen/<name>/
+# is ignored. Hand-written docs (e.g. docs/superpowers/) live at docs/<name>/
+# and remain tracked.
+docs/gen/
 
 # Stray local-tool scratch dirs that occasionally land in the repo root.
 tmp_abcli/
