@@ -228,3 +228,96 @@ async def test_runner_budget_exceeded_propagates():
     # budget must be intact — the failed invocation did NOT mutate state
     assert budget.total_cost_usd == 0.0
     assert budget.invocations == 0
+
+
+class FlakingSDK:
+    """Fake SDK that raises a transport-style exception on the first
+    `fail_count` calls, then returns `response` on subsequent calls.
+
+    Models the real-world #54 symptom: bundled claude CLI subprocess
+    occasionally exits 1 and the SDK surfaces it as a generic Exception
+    whose message starts with 'Command failed with exit code'.
+    """
+
+    def __init__(self, fail_count: int, response: dict):
+        self.fail_count = fail_count
+        self.response = response
+        self.attempts = 0
+
+    async def query(self, *, prompt: str, options: dict) -> dict:
+        self.attempts += 1
+        if self.attempts <= self.fail_count:
+            raise Exception("Command failed with exit code 1 (exit code: 1)")
+        return self.response
+
+
+@pytest.mark.anyio
+async def test_runner_retries_transient_transport_errors():
+    """Issue #54: a single bundled-CLI flake must not abort the run.
+    Runner wraps the SDK call in bounded retry; the caller should see the
+    eventual successful result with no awareness that retries happened."""
+    budget = CostAccumulator(cap_usd=1.00)
+    sdk = FlakingSDK(
+        fail_count=2,
+        response={
+            "text": "doc body",
+            "usage": {"input_tokens": 100, "output_tokens": 50, "cost_usd": 0.01},
+        },
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=sdk, transport_retry_backoff=0.0)
+    agent = AgentDef(name="t", system_prompt="p", model="m")
+
+    out = await r.run(agent, prompt="hi")
+
+    assert out.text == "doc body"
+    assert sdk.attempts == 3, "runner should have attempted twice and succeeded on the third"
+    # budget accrues exactly once — the failed transport attempts cost nothing
+    assert budget.invocations == 1
+    assert budget.total_cost_usd == 0.01
+
+
+@pytest.mark.anyio
+async def test_runner_gives_up_after_max_transport_retries():
+    """Runner retries are bounded. After N failures, the last exception
+    propagates so the caller can surface a real error rather than silently
+    looping forever."""
+    budget = CostAccumulator(cap_usd=1.00)
+    sdk = FlakingSDK(
+        fail_count=99,  # always fail
+        response={"text": "never reached", "usage": {}},
+    )
+    r = ClaudeSDKRunner(budget=budget, sdk=sdk, transport_retry_backoff=0.0)
+    agent = AgentDef(name="t", system_prompt="p", model="m")
+
+    with pytest.raises(Exception, match="Command failed with exit code"):
+        await r.run(agent, prompt="hi")
+
+    # bounded: must not loop forever. 1 initial + N retries.
+    assert sdk.attempts <= 4, f"runner attempted {sdk.attempts} times — retry budget is unbounded"
+    # nothing accrued
+    assert budget.invocations == 0
+
+
+@pytest.mark.anyio
+async def test_runner_does_not_retry_non_transport_errors():
+    """Retries are scoped to transport-level flakes. A programming error
+    (ValueError, TypeError, etc.) must propagate immediately so it isn't
+    masked by 3 retry attempts and a sleep that delays the real signal."""
+    budget = CostAccumulator(cap_usd=1.00)
+
+    class ValueErrorSDK:
+        def __init__(self):
+            self.attempts = 0
+
+        async def query(self, *, prompt: str, options: dict) -> dict:
+            self.attempts += 1
+            raise ValueError("not a transport error")
+
+    sdk = ValueErrorSDK()
+    r = ClaudeSDKRunner(budget=budget, sdk=sdk, transport_retry_backoff=0.0)
+    agent = AgentDef(name="t", system_prompt="p", model="m")
+
+    with pytest.raises(ValueError, match="not a transport error"):
+        await r.run(agent, prompt="hi")
+
+    assert sdk.attempts == 1, "non-transport errors must not trigger retries"
