@@ -64,3 +64,78 @@ async def test_stage5_requires_packages_dir(tmp_path: Path):
     runner = ClaudeSDKRunner(budget=CostAccumulator(cap_usd=1.0), sdk=FakeSDK())
     with pytest.raises(FileNotFoundError):
         await stage_mermaid(state=state, runner=runner)
+
+
+class FakeSDKClassDiagram:
+    """Returns classDiagram-style mermaid (vs FakeSDK's flowchart). Needed
+    for the per-package merger test — the merger ignores non-classDiagram
+    blocks by design, so the integration test must produce real classDiagram
+    output."""
+
+    def __init__(self):
+        self._idx = 0
+
+    async def query(self, *, prompt: str, options: dict) -> dict:
+        system = options.get("system_prompt") or ""
+        if "mermaid diagram generator" in system:
+            # Alternate two different class diagrams so the merge has
+            # something to deduplicate.
+            self._idx += 1
+            if self._idx % 2 == 1:
+                text = "classDiagram\n    class Gateway\n    class Card\n    Gateway --> Card\n"
+            else:
+                text = "classDiagram\n    class Charge\n    class Card\n    Charge --> Card\n"
+            return {
+                "text": text,
+                "usage": {"input_tokens": 10, "output_tokens": 20, "cost_usd": 0.001},
+            }
+        if "mermaid-semantics reviewer" in system:
+            import json
+
+            return {
+                "text": json.dumps({"status": "pass", "summary": "ok"}),
+                "usage": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.0005},
+            }
+        raise AssertionError(f"unexpected agent: {system[:80]}")
+
+
+@pytest.mark.requires_mmdc
+@pytest.mark.anyio
+async def test_stage5_appends_package_overview_diagram_to_readme(tmp_path: Path):
+    """Stage 5 emits a per-package overview diagram (merged from the
+    per-class diagrams) and appends it to each package README. Without this,
+    package READMEs ship diagram-less and readers must drill into individual
+    class docs to see any structural view of the package.
+    """
+    output = tmp_path / "design"
+    pkg_dir = output / "packages" / "payments"
+    classes_dir = pkg_dir / "classes"
+    classes_dir.mkdir(parents=True)
+    (classes_dir / "Gateway.md").write_text("## Purpose\nGateway class.")
+    (classes_dir / "Charge.md").write_text("## Purpose\nCharge class.")
+    # The package README must already exist (Stage 4 produces it). Pre-seed
+    # one without a Diagram section to mirror the real Stage 4 output.
+    (pkg_dir / "README.md").write_text(
+        "# payments\n\n## Overview\nHandles money. No diagram here yet.\n"
+    )
+
+    state = PipelineState.load_or_new(output_dir=output, target_repo=tmp_path)
+    runner = ClaudeSDKRunner(budget=CostAccumulator(cap_usd=1.0), sdk=FakeSDKClassDiagram())
+
+    await stage_mermaid(state=state, runner=runner)
+
+    readme_text = (pkg_dir / "README.md").read_text()
+    assert "## Diagram" in readme_text, (
+        "package README must gain a Diagram section after Stage 5 runs"
+    )
+    assert "```mermaid" in readme_text
+    assert "classDiagram" in readme_text
+    # The merger should have collected class names from both per-class docs
+    # AND deduplicated the shared `Card` class to a single declaration.
+    assert "class Card" in readme_text
+    assert "class Gateway" in readme_text
+    assert "class Charge" in readme_text
+    assert readme_text.count("class Card") == 1, (
+        "Card was declared in both Gateway.md and Charge.md diagrams; "
+        "the package overview must dedupe to a single declaration"
+    )
