@@ -11,10 +11,35 @@ Tests inject a fake `sdk` so unit tests run offline.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from designdoc.budget import CostAccumulator, UsageRecord
+
+log = logging.getLogger(__name__)
+
+# Issue #54: the bundled claude-agent-sdk CLI subprocess occasionally exits 1
+# with a generic "Command failed with exit code" error. Treat that class of
+# failure as retryable transport noise, not as a real run failure. The cap is
+# bounded (not user-configurable) for the same reason as MAX_ATTEMPTS in
+# loop.py: it's a correctness knob, not a tuning knob.
+MAX_TRANSPORT_RETRIES = 3
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """Return True for retryable transport-level errors from claude_agent_sdk.
+
+    Covers both `claude_agent_sdk.ProcessError` (raised by the subprocess
+    transport at exit) and the plain `Exception` raised by the SDK's message
+    receiver when an "error"-type protocol message is encountered. We match
+    on class name + message substring so this module stays importable in unit
+    tests without a real `claude_agent_sdk` install.
+    """
+    if exc.__class__.__name__ == "ProcessError":
+        return True
+    return "Command failed with exit code" in str(exc)
 
 
 @dataclass
@@ -56,19 +81,25 @@ class ClaudeSDKRunner:
         budget: CostAccumulator,
         sdk: SDKProtocol | None = None,
         cwd: str | None = None,
+        transport_retry_backoff: float = 1.0,
     ):
         """cwd: working directory to expose to the SDK subprocess. When set,
         every options dict carries it through to ClaudeAgentOptions.cwd, so
         the SDK's Read/Grep tools resolve relative paths against the **target
         repo** rather than wherever the user invoked the CLI from. Issue #46.
+
+        transport_retry_backoff: base seconds for exponential backoff between
+        transport-error retries (1.0 → 1s, 2s, 4s). Issue #54. Tests pass 0.0
+        to keep the suite fast; real callers leave the default.
         """
         self.budget = budget
         self.sdk = sdk if sdk is not None else _DefaultSDK()
         self.cwd = cwd
+        self.transport_retry_backoff = transport_retry_backoff
 
     async def run(self, agent: AgentDef, prompt: str) -> RunResult:
         options = _build_options(agent, cwd=self.cwd)
-        resp = await self.sdk.query(prompt=prompt, options=options)
+        resp = await self._query_with_retry(agent.name, prompt, options)
         usage = resp.get("usage", {}) or {}
         rec = UsageRecord(
             input_tokens=usage.get("input_tokens", 0),
@@ -83,6 +114,45 @@ class ClaudeSDKRunner:
             output_tokens=rec.output_tokens,
             cost_usd=rec.cost_usd,
         )
+
+    async def _query_with_retry(self, agent_name: str, prompt: str, options: dict) -> dict:
+        """Call self.sdk.query with bounded retry on transport-level errors.
+
+        Issue #54: the bundled claude CLI subprocess occasionally exits 1 mid
+        stream; the SDK surfaces this as an Exception whose message starts with
+        "Command failed with exit code". A single flake should not abort the
+        whole stage's TaskGroup — retry up to MAX_TRANSPORT_RETRIES times with
+        exponential backoff. Non-transport exceptions propagate immediately
+        so real bugs aren't masked by retry-and-delay.
+        """
+        last_exc: BaseException | None = None
+        for attempt in range(MAX_TRANSPORT_RETRIES + 1):
+            try:
+                return await self.sdk.query(prompt=prompt, options=options)
+            except Exception as exc:
+                if not _is_transport_error(exc):
+                    raise
+                last_exc = exc
+                if attempt == MAX_TRANSPORT_RETRIES:
+                    log.warning(
+                        "agent %s: transport error after %d attempts, giving up: %s",
+                        agent_name,
+                        attempt + 1,
+                        exc,
+                    )
+                    raise
+                sleep_s = self.transport_retry_backoff * (2**attempt)
+                log.warning(
+                    "agent %s: transport error on attempt %d (%s); retrying in %.1fs",
+                    agent_name,
+                    attempt + 1,
+                    exc,
+                    sleep_s,
+                )
+                if sleep_s > 0:
+                    await asyncio.sleep(sleep_s)
+        # Unreachable: the loop above either returns or raises.
+        raise last_exc  # type: ignore[misc]
 
 
 def _build_options(agent: AgentDef, cwd: str | None = None) -> dict:

@@ -33,6 +33,17 @@ its own repo are fixed; the ULTRAREVIEW follow-up hardening pass also lands.
   excludes `.claude/`, `.opencode/`, `.devcontainer/`, `.idea/`, and
   `.vscode/` by default. Previously these dirs polluted the language
   manifest with agent prompts and IDE config files, wasting Stage 1 budget.
+- **Runner retries transient SDK transport errors (#54).** The bundled
+  `claude-agent-sdk` CLI subprocess occasionally exits 1 mid-stream with a
+  generic "Command failed with exit code" error. Previously a single flake
+  aborted the entire stage's `asyncio.TaskGroup`, cancelling every sibling
+  task; recovery required manual `designdoc resume` (and got the same
+  treatment a few classes later). `ClaudeSDKRunner` now wraps the SDK call
+  with up to 3 retries on transport-level errors using exponential backoff
+  (1s, 2s, 4s). Non-transport errors propagate immediately so real bugs
+  aren't masked. Validated on the agent-brain monorepo eval: pre-fix needed
+  30 bash-loop iterations to complete Stage 5; post-fix expected to land
+  in 1-2.
 
 ### Hardened (ULTRAREVIEW follow-up — issues #6-#18)
 
