@@ -167,10 +167,19 @@ async def _emit_package_diagrams(state: PipelineState, packages_dir) -> None:
 
         validation = validate(merged)
         if not validation.ok:
-            # Fail soft: leave the README diagram-less rather than crash the
-            # stage. Stage 5 is best-effort by design (per-class diagrams
-            # already use the same HIL-or-ship pattern).
-            continue
+            # One retry with arrow labels stripped — mmdc's relationship-label
+            # grammar rejects `;`, sometimes chokes on `()`, and has fragile
+            # quoting rules. Stripping every label to a bare arrow is the
+            # universal escape hatch: less informative than a labelled
+            # diagram, but still a useful bird's-eye view.
+            stripped = _strip_arrow_labels(merged)
+            if stripped != merged and validate(stripped).ok:
+                merged = stripped
+            else:
+                # Fail soft: leave the README diagram-less rather than crash
+                # the stage. Stage 5 is best-effort by design (per-class
+                # diagrams already use the same HIL-or-ship pattern).
+                continue
 
         body = _strip_diagram_section(pkg_text)
         section = f"\n\n## Diagram\n\n```mermaid\n{merged}\n```\n"
@@ -225,6 +234,22 @@ def _merge_class_diagrams(blocks: list[str]) -> str:
     lines.extend(f"    class {name}" for name in sorted(class_names))
     lines.extend(f"    {arrow}" for arrow in sorted(arrows))
     return "\n".join(lines)
+
+
+def _strip_arrow_labels(diagram_text: str) -> str:
+    """Drop the `: label` suffix from every relationship-arrow line in a
+    mermaid classDiagram. Used as a one-shot retry escape hatch when the
+    full merged diagram fails mmdc validation due to label-grammar quirks
+    (see issue #59 for the agent-brain config-package failure case).
+    """
+    out: list[str] = []
+    for line in diagram_text.splitlines():
+        if any(op in line for op in _ARROW_OPS) and not line.lstrip().startswith("class "):
+            head, sep, _label = line.partition(":")
+            out.append(head.rstrip() if sep else line)
+        else:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _strip_diagram_section(text: str) -> str:
