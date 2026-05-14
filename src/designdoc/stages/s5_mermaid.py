@@ -23,9 +23,11 @@ import re
 
 from designdoc.hil import inline_comment
 from designdoc.io_utils import atomic_write
+from designdoc.loop import ArtifactResult
 from designdoc.mermaid.loop import generate_validated_mermaid, strip_fence
 from designdoc.mermaid.mmdc import preflight, validate
 from designdoc.state import PipelineState, StageStatus, state_lock
+from designdoc.verdict import CheckerVerdict, MermaidIssue
 
 STAGE_NAME = "mermaid"
 
@@ -90,14 +92,8 @@ async def run(
         )
 
         mermaid_src = strip_fence(result.text)
-        section = f"\n\n## Diagram\n\n```mermaid\n{mermaid_src}\n```\n"
-        if result.status == "shipped_with_hil":
-            hil_id = state.hil_issues[-1]["id"]
-            section = (
-                f"\n\n## Diagram\n\n"
-                f"{inline_comment(hil_id, 'mermaid diagram disputed')}\n\n"
-                f"```mermaid\n{mermaid_src}\n```\n"
-            )
+        hil_id = state.hil_issues[-1]["id"] if result.status == "shipped_with_hil" else None
+        section = _build_diagram_section(result, mermaid_src, hil_id)
 
         # Write body (without any prior Diagram) plus the fresh section —
         # avoids stacking Diagram sections on re-run.
@@ -234,6 +230,51 @@ def _merge_class_diagrams(blocks: list[str]) -> str:
     lines.extend(f"    class {name}" for name in sorted(class_names))
     lines.extend(f"    {arrow}" for arrow in sorted(arrows))
     return "\n".join(lines)
+
+
+def _is_mmdc_syntax_failure(verdict: CheckerVerdict) -> bool:
+    """True if the verdict's terminal failure was an mmdc syntax error.
+
+    The composite mermaid checker (mermaid/loop.py) emits issues with
+    category='syntax' for mmdc parser failures and other categories
+    (hallucinated_node, missing_edge, etc.) for LLM-semantic failures.
+    A mixed verdict containing any syntax issue is still treated as
+    syntax-failing — the diagram won't render either way.
+    """
+    return any(
+        isinstance(issue, MermaidIssue) and issue.category == "syntax" for issue in verdict.issues
+    )
+
+
+def _build_diagram_section(result: ArtifactResult, mermaid_src: str, hil_id: str | None) -> str:
+    """Build the '## Diagram' section for a class doc.
+
+    Three paths:
+
+    * ``pass``: fence around mermaid_src. The happy path.
+    * ``shipped_with_hil`` + mmdc syntax failure: drop the fence entirely.
+      A syntax-broken mermaid block renders as a blank/error in every viewer
+      (GitHub, IDE, mkdocs), so shipping one with a HIL marker is strictly
+      worse than no diagram at all. Replace with a 'diagram unavailable'
+      line pointing at hil-issues.yaml. See issue #61.
+    * ``shipped_with_hil`` + LLM-semantic failure: keep the fence. mmdc
+      said the mermaid parses; the dispute is about content quality
+      (hallucinated node, wrong direction, etc.). The diagram still renders.
+    """
+    if result.status == "pass":
+        return f"\n\n## Diagram\n\n```mermaid\n{mermaid_src}\n```\n"
+
+    assert hil_id is not None, "shipped_with_hil requires a hil_id"
+    marker = inline_comment(hil_id, "mermaid diagram disputed")
+
+    if _is_mmdc_syntax_failure(result.verdict):
+        return (
+            f"\n\n## Diagram\n\n"
+            f"{marker}\n\n"
+            f"> Diagram unavailable; see {hil_id} in hil-issues.yaml.\n"
+        )
+
+    return f"\n\n## Diagram\n\n{marker}\n\n```mermaid\n{mermaid_src}\n```\n"
 
 
 def _strip_arrow_labels(diagram_text: str) -> str:
