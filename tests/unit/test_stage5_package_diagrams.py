@@ -17,7 +17,11 @@ from pathlib import Path
 import pytest
 
 from designdoc.stages import s5_mermaid
-from designdoc.stages.s5_mermaid import _merge_class_diagrams, _strip_arrow_labels
+from designdoc.stages.s5_mermaid import (
+    _merge_class_diagrams,
+    _parse_arrow,
+    _strip_arrow_labels,
+)
 
 
 def test_merge_extracts_class_names_from_inputs():
@@ -273,3 +277,96 @@ async def test_emit_package_diagrams_stays_failsoft_when_retry_also_fails(
     assert (pkg_dir / "README.md").read_text() == pre_readme, (
         "README must be untouched when both validate attempts fail"
     )
+
+
+# ----- arrow dedupe by (src, op, dst) tuple (issue #62) --------------------
+
+
+def test_parse_arrow_extracts_src_op_dst_label():
+    """The basic shape: indented `A --> B : label` → ('A', '-->', 'B', 'label')."""
+    assert _parse_arrow("    A --> B : uses") == ("A", "-->", "B", "uses")
+
+
+def test_parse_arrow_no_label_means_empty_label():
+    """An unlabelled arrow returns '' for the label — not None — so callers
+    can dedupe-by-tuple uniformly."""
+    assert _parse_arrow("    A --> B") == ("A", "-->", "B", "")
+
+
+def test_parse_arrow_recognizes_all_relationship_ops():
+    """Every classDiagram relationship op in _ARROW_OPS must parse cleanly.
+    Catches regressions if someone adds a new op to _ARROW_OPS without
+    updating the parser."""
+    cases = [
+        ("    Animal <|-- Dog", "<|--"),
+        ("    Dog --|> Animal", "--|>"),
+        ("    Dog ..> Bone", "..>"),
+        ("    Bone <.. Dog", "<.."),
+        ("    Engine *-- Car", "*--"),
+        ("    Car --* Engine", "--*"),
+        ("    Listener o-- Source", "o--"),
+        ("    Source --o Listener", "--o"),
+        ("    A --> B", "-->"),
+        ("    B <-- A", "<--"),
+    ]
+    for line, expected_op in cases:
+        parsed = _parse_arrow(line)
+        assert parsed is not None, f"failed to parse {line!r}"
+        assert parsed[1] == expected_op, f"wrong op for {line!r}: got {parsed[1]}"
+
+
+def test_parse_arrow_returns_none_for_non_arrow_line():
+    """`class Foo` and similar non-arrow lines should return None so the
+    merger can skip them without misclassifying."""
+    assert _parse_arrow("    class Foo") is None
+    assert _parse_arrow("classDiagram") is None
+    assert _parse_arrow("    ") is None
+
+
+def test_merge_dedupes_arrows_with_different_labels():
+    """The agent-brain dogfood found `BaseModel <|-- GraphQueryContext : extends`
+    and `BaseModel <|-- GraphQueryContext : inherits` declared back-to-back
+    in models. Set-based dedupe keyed on full line string lets them both
+    survive. After this fix, dedupe-by-(src, op, dst) tuple collapses them
+    to one arrow (first label wins, deterministic given stable input order)."""
+    a = (
+        "classDiagram\n"
+        "    class BaseModel\n"
+        "    class GraphQueryContext\n"
+        "    BaseModel <|-- GraphQueryContext : extends\n"
+        "    BaseModel <|-- GraphQueryContext : inherits\n"
+    )
+
+    merged = _merge_class_diagrams([a])
+
+    arrow_lines = [
+        line for line in merged.splitlines() if "BaseModel <|-- GraphQueryContext" in line
+    ]
+    assert len(arrow_lines) == 1, (
+        f"expected 1 arrow after tuple-dedupe, got {len(arrow_lines)}: {arrow_lines!r}"
+    )
+    # The first label seen wins — deterministic, given that block iteration
+    # order is stable (sorted class_docs in the caller).
+    assert "extends" in arrow_lines[0]
+
+
+def test_merge_keeps_distinct_edges_with_different_ops():
+    """Same (src, dst) but different op = genuinely distinct edge. Both must
+    survive — e.g. `A --> B` (dependency) and `A ..> B` (transient use)
+    convey different meaning and shouldn't be collapsed."""
+    a = "classDiagram\n    class A\n    class B\n    A --> B\n    A ..> B\n"
+
+    merged = _merge_class_diagrams([a])
+
+    assert "A --> B" in merged
+    assert "A ..> B" in merged
+
+
+def test_merge_keeps_distinct_edges_with_different_targets():
+    """Same (src, op) but different dst = different edge. Both survive."""
+    a = "classDiagram\n    class A\n    class B\n    class C\n    A --> B\n    A --> C\n"
+
+    merged = _merge_class_diagrams([a])
+
+    assert "A --> B" in merged
+    assert "A --> C" in merged

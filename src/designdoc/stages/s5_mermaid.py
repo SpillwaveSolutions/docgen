@@ -198,7 +198,12 @@ def _merge_class_diagrams(blocks: list[str]) -> str:
     Returns an empty string if no class names were found.
     """
     class_names: set[str] = set()
-    arrows: set[str] = set()
+    # Issue #62: dedupe arrows by (src, op, dst) tuple, not full line string,
+    # so labelled variants like `A --> B : foo` and `A --> B : bar` collapse
+    # to one canonical arrow. First label seen wins (deterministic given
+    # stable input order — blocks come from sorted class_docs).
+    arrow_keys: set[tuple[str, str, str]] = set()
+    arrow_lines: list[str] = []
 
     for block in blocks:
         # Identify classDiagram blocks by the directive at the head. We do
@@ -221,15 +226,48 @@ def _merge_class_diagrams(blocks: list[str]) -> str:
             # does NOT start with `class ` (otherwise we'd grab class-block
             # openers with `class Foo --> Bar` style inline declarations).
             if any(op in stripped for op in _ARROW_OPS) and not stripped.startswith("class "):
-                arrows.add(stripped)
+                parsed = _parse_arrow(stripped)
+                if parsed is None:
+                    continue
+                key = parsed[:3]
+                if key not in arrow_keys:
+                    arrow_keys.add(key)
+                    arrow_lines.append(stripped)
 
     if not class_names:
         return ""
 
     lines = ["classDiagram"]
     lines.extend(f"    class {name}" for name in sorted(class_names))
-    lines.extend(f"    {arrow}" for arrow in sorted(arrows))
+    lines.extend(f"    {arrow}" for arrow in sorted(arrow_lines))
     return "\n".join(lines)
+
+
+def _parse_arrow(line: str) -> tuple[str, str, str, str] | None:
+    """Parse a mermaid classDiagram relationship line into (src, op, dst, label).
+
+    Returns None if no arrow op is found or the surrounding parts are empty
+    (malformed line). label is "" when no `: label` is present — callers
+    can then dedupe-by-tuple uniformly without juggling None.
+
+    Sorted longest-first so multi-character ops like `<|--` don't get
+    mis-matched as `<--` substrings even though no op is currently a
+    substring of another (defensive against future _ARROW_OPS additions).
+    """
+    stripped = line.strip()
+    if not stripped:
+        return None
+    for op in sorted(_ARROW_OPS, key=len, reverse=True):
+        idx = stripped.find(op)
+        if idx == -1:
+            continue
+        left = stripped[:idx].strip()
+        right = stripped[idx + len(op) :].strip()
+        if not left or not right:
+            return None
+        target, sep, label = right.partition(":")
+        return (left, op, target.strip(), label.strip() if sep else "")
+    return None
 
 
 def _is_mmdc_syntax_failure(verdict: CheckerVerdict) -> bool:
